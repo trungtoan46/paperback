@@ -1,23 +1,27 @@
 {
-    "buildTime": "2026-01-16",
+    "buildTime": "2026-01-16T16:10:00.000Z",
     "sources": [
         {
             "id": "TruyenQQ",
             "name": "TruyenQQ",
             "author": "Paperback Community",
-            "desc": "Extension for TruyenQQ",
-            "website": "https://truyenqqno.com",
+            "desc": "Extension cho trang TruyenQQ",
+            "website": "https://github.com/trungtoan46/paperback",
+            "contentRating": "MATURE",
             "version": "1.0.0",
             "icon": "icon.png",
             "tags": [
                 {
                     "text": "Vietnamese",
-                    "type": "default"
+                    "type": "info"
                 }
             ],
             "websiteBaseURL": "https://truyenqqno.com",
-            "contentRating": "EVERYONE",
-            "intents": 3
+            "intents": 21
         }
-    ]
+    ],
+    "builtWith": {
+        "toolchain": "0.8.7",
+        "types": "0.8.7"
+    }
 }

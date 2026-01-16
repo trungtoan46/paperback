@@ -1,24 +1,23 @@
 {
-    "buildTime": "2026-01-16T15:55:00Z",
+    "buildTime": "2026-01-16",
     "sources": [
         {
             "id": "TruyenQQ",
             "name": "TruyenQQ",
             "author": "Paperback Community",
-            "desc": "Đọc truyện từ TruyenQQ",
+            "desc": "Extension for TruyenQQ",
             "website": "https://truyenqqno.com",
             "version": "1.0.0",
             "icon": "icon.png",
             "tags": [
                 {
                     "text": "Vietnamese",
-                    "type": "info"
+                    "type": "default"
                 }
             ],
             "websiteBaseURL": "https://truyenqqno.com",
-            "contentRating": "MATURE",
-            "intents": 3,
-            "sourcePath": "TruyenQQ.js"
+            "contentRating": "EVERYONE",
+            "intents": 3
         }
     ]
 }

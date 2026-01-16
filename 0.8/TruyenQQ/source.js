@@ -120,7 +120,7 @@ exports.TruyenQQInfo = {
         { text: 'Vietnamese', type: 0 },
         { text: 'Manhwa', type: 1 }
     ],
-    intents: 21
+    intents: 17  // MANGA_CHAPTERS (1) + CLOUDFLARE_BYPASS_REQUIRED (16)
 };
 
 // Main class

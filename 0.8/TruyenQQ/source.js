@@ -1,9 +1,12 @@
 /**
  * TruyenQQ Extension for Paperback v0.8
- * Version 1.0.7 - Minimalist Stability Fix
+ * Version 1.0.8 - Standardized Interface Fix
  */
 
 "use strict";
+
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.TruyenQQ = exports.TruyenQQInfo = void 0;
 
 var DOMAIN = 'https://truyenqqno.com';
 
@@ -48,12 +51,12 @@ Parser.prototype.parseMangaList = function ($) {
         var title = $link.attr('title') || $elem.find('.book_name a').text().trim();
         var image = $elem.find('img').attr('data-src') || $elem.find('img').attr('src') || '';
         var subtitle = $elem.find('.chapter_name').text().trim();
-        mangas.push({
+        mangas.push(App.createPartialSourceManga({
             mangaId: mangaId,
             title: title || 'Không tiêu đề',
             image: image || '',
             subtitle: subtitle || ''
-        });
+        }));
     });
     return mangas;
 };
@@ -64,7 +67,7 @@ Parser.prototype.parseMangaDetails = function ($, mangaId) {
         var label = $(elem).text().trim();
         var href = $(elem).attr('href');
         var id = href ? href.split('/').pop() : label;
-        tags.push({ label: label, id: id });
+        tags.push(App.createTag({ label: label, id: id }));
     });
     var title = $('.book_info h1').text().trim() || 'Không tiêu đề';
     var author = $('.list_info .org').first().text().trim() || 'Đang cập nhật';
@@ -72,9 +75,9 @@ Parser.prototype.parseMangaDetails = function ($, mangaId) {
     var desc = $('.story_introduction').text().trim() || 'Không có mô tả';
     var status = $('.list_info li').eq(2).text().trim() || 'Đang cập nhật';
 
-    return {
+    return App.createSourceManga({
         id: mangaId,
-        mangaInfo: {
+        mangaInfo: App.createMangaInfo({
             titles: [title],
             image: image || '',
             author: author,
@@ -82,16 +85,9 @@ Parser.prototype.parseMangaDetails = function ($, mangaId) {
             desc: desc,
             status: status,
             hentai: false,
-            avgRating: 0,
-            follows: 0,
-            langFlag: 'vn',
-            langName: 'Vietnamese',
-            users: 0,
-            views: 0,
-            covers: [],
-            tags: [{ id: '0', label: 'Thể loại', tags: tags }]
-        }
-    };
+            tags: [App.createTagSection({ id: '0', label: 'Thể loại', tags: tags })]
+        })
+    });
 };
 
 Parser.prototype.parseChapterList = function ($, mangaId) {
@@ -108,17 +104,15 @@ Parser.prototype.parseChapterList = function ($, mangaId) {
         var chapNum = chapMatch ? parseFloat(chapMatch[1]) : 0;
         var time = self.convertTime(timeText);
 
-        chapters.push({
+        chapters.push(App.createChapter({
             id: url,
             mangaId: mangaId,
             name: chapterName || ("Chapter " + chapNum),
             chapNum: chapNum,
             langCode: 'vi',
             time: time,
-            volume: 0,
-            group: '',
             sortingIndex: index
-        });
+        }));
     });
     return chapters;
 };
@@ -134,93 +128,88 @@ Parser.prototype.parseChapterDetails = function ($) {
     return pages;
 };
 
-function TruyenQQ(cheerio) {
-    this.cheerio = cheerio;
-    this.parser = new Parser();
-    this.requestManager = App.createRequestManager({
-        requestsPerSecond: 4,
-        requestTimeout: 15000,
-        interceptor: {
-            interceptRequest: function (request) {
-                var headers = request.headers || {};
-                headers['referer'] = DOMAIN;
-                headers['user-agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148';
-                request.headers = headers;
-                return Promise.resolve(request);
-            },
-            interceptResponse: function (response) {
-                return Promise.resolve(response);
+var TruyenQQ = (function () {
+    function TruyenQQ(cheerio) {
+        this.cheerio = cheerio;
+        this.parser = new Parser();
+        this.requestManager = App.createRequestManager({
+            requestsPerSecond: 4,
+            requestTimeout: 15000,
+            interceptor: {
+                interceptRequest: function (request) {
+                    request.headers = request.headers || {};
+                    request.headers['referer'] = DOMAIN;
+                    request.headers['user-agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148';
+                    return Promise.resolve(request);
+                },
+                interceptResponse: function (response) {
+                    return Promise.resolve(response);
+                }
             }
-        }
-    });
-}
+        });
+    }
+    TruyenQQ.prototype.getMangaShareUrl = function (mangaId) {
+        return DOMAIN + '/truyen-tranh/' + mangaId;
+    };
+    TruyenQQ.prototype.DOMHTML = function (url) {
+        var self = this;
+        var request = App.createRequest({ url: url, method: 'GET' });
+        return this.requestManager.schedule(request, 1).then(function (response) {
+            return self.cheerio.load(response.data);
+        });
+    };
+    TruyenQQ.prototype.getMangaDetails = function (mangaId) {
+        var self = this;
+        return this.DOMHTML(DOMAIN + '/truyen-tranh/' + mangaId).then(function ($) {
+            return self.parser.parseMangaDetails($, mangaId);
+        });
+    };
+    TruyenQQ.prototype.getChapters = function (mangaId) {
+        var self = this;
+        return this.DOMHTML(DOMAIN + '/truyen-tranh/' + mangaId).then(function ($) {
+            return self.parser.parseChapterList($, mangaId);
+        });
+    };
+    TruyenQQ.prototype.getChapterDetails = function (mangaId, chapterId) {
+        var self = this;
+        var url = chapterId.indexOf('http') === 0 ? chapterId : DOMAIN + chapterId;
+        return this.DOMHTML(url).then(function ($) {
+            var pages = self.parser.parseChapterDetails($);
+            return App.createChapterDetails({ id: chapterId, mangaId: mangaId, pages: pages });
+        });
+    };
+    TruyenQQ.prototype.getSearchResults = function (query, metadata) {
+        var self = this;
+        var page = (metadata && metadata.page) ? metadata.page : 1;
+        var url = (query && query.title)
+            ? DOMAIN + '/tim-kiem.html?q=' + encodeURIComponent(query.title)
+            : DOMAIN + '/truyen-moi-cap-nhat/trang-' + page + '.html';
+        return this.DOMHTML(url).then(function ($) {
+            var mangas = self.parser.parseMangaList($);
+            var hasNext = $('.pagination a.next, a[title="Next"]').length > 0;
+            return App.createPagedResults({
+                results: mangas,
+                metadata: hasNext ? { page: page + 1 } : undefined
+            });
+        });
+    };
+    return TruyenQQ;
+}());
 
-TruyenQQ.prototype.getMangaShareUrl = function (mangaId) {
-    return DOMAIN + '/truyen-tranh/' + mangaId;
-};
-
-TruyenQQ.prototype.DOMHTML = function (url) {
-    var self = this;
-    var request = App.createRequest({ url: url, method: 'GET' });
-    return this.requestManager.schedule(request, 1).then(function (response) {
-        return self.cheerio.load(response.data);
-    });
-};
-
-TruyenQQ.prototype.getMangaDetails = function (mangaId) {
-    var self = this;
-    return this.DOMHTML(DOMAIN + '/truyen-tranh/' + mangaId).then(function ($) {
-        return self.parser.parseMangaDetails($, mangaId);
-    });
-};
-
-TruyenQQ.prototype.getChapters = function (mangaId) {
-    var self = this;
-    return this.DOMHTML(DOMAIN + '/truyen-tranh/' + mangaId).then(function ($) {
-        return self.parser.parseChapterList($, mangaId);
-    });
-};
-
-TruyenQQ.prototype.getChapterDetails = function (mangaId, chapterId) {
-    var self = this;
-    var url = chapterId.indexOf('http') === 0 ? chapterId : DOMAIN + chapterId;
-    return this.DOMHTML(url).then(function ($) {
-        var pages = self.parser.parseChapterDetails($);
-        return { id: chapterId, mangaId: mangaId, pages: pages };
-    });
-};
-
-TruyenQQ.prototype.getSearchResults = function (query, metadata) {
-    var self = this;
-    var page = (metadata && metadata.page) ? metadata.page : 1;
-    var url = (query && query.title)
-        ? DOMAIN + '/tim-kiem.html?q=' + encodeURIComponent(query.title)
-        : DOMAIN + '/truyen-moi-cap-nhat/trang-' + page + '.html';
-
-    return this.DOMHTML(url).then(function ($) {
-        var mangas = self.parser.parseMangaList($);
-        var hasNext = $('.pagination a.next, a[title="Next"]').length > 0;
-        return {
-            results: mangas,
-            metadata: hasNext ? { page: page + 1 } : undefined
-        };
-    });
-};
-
+exports.TruyenQQ = TruyenQQ;
 exports.TruyenQQInfo = {
-    version: '1.0.7',
+    version: '1.0.8',
     name: 'TruyenQQ',
     icon: 'icon.png',
     author: 'Paperback Community',
     authorWebsite: 'https://github.com/paperback-community',
-    description: 'Extension v1.0.7 - Minimalist Fix',
-    contentRating: 'MATURE',
+    description: 'Extension v1.0.8 - Standard Interface',
+    contentRating: 1,
     websiteBaseURL: DOMAIN,
     sourceTags: [
-        { text: 'Vietnamese', type: 0 },
-        { text: 'Manhwa', type: 1 }
+        { text: 'Vietnamese', type: 0 }
     ],
     intents: 17
 };
 
-exports.TruyenQQ = TruyenQQ;
+exports.SourceInfo = exports.TruyenQQInfo;

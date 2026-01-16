@@ -135,8 +135,8 @@ class TruyenQQ {
                 interceptRequest: async (request) => {
                     request.headers = {
                         ...(request.headers ?? {}),
-                        referer: DOMAIN,
-                        'user-agent': await this.requestManager.getDefaultUserAgent()
+                        'referer': DOMAIN,
+                        'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'
                     };
                     return request;
                 },

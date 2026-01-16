@@ -1,14 +1,14 @@
 {
-    "buildTime": "2026-01-16T09:30:00Z",
+    "buildTime": "2026-01-16T16:45:00Z",
     "sources": [
         {
             "id": "TruyenQQ",
             "name": "TruyenQQ",
             "author": "Paperback Community",
-            "desc": "Extension cho trang TruyenQQ",
+            "desc": "Extension cho trang TruyenQQ (Compatibility Fix)",
             "website": "https://github.com/trungtoan46/paperback",
             "contentRating": "MATURE",
-            "version": "1.0.4",
+            "version": "1.0.5",
             "icon": "icon.png",
             "tags": [
                 {

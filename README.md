@@ -18,7 +18,7 @@
 2. Settings → Sources → External Sources
 3. Thêm repository URL:
    ```
-   https://raw.githubusercontent.com/YOUR_USERNAME/REPO_NAME/main/
+   https://raw.githubusercontent.com/trungtoan46/paperback/main/
    ```
 4. Refresh và install "TruyenQQ"
 

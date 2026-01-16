@@ -1,11 +1,11 @@
 {
-    "buildTime": "2026-01-16T15:46:00Z",
+    "buildTime": "2026-01-16T15:55:00Z",
     "sources": [
         {
             "id": "TruyenQQ",
             "name": "TruyenQQ",
             "author": "Paperback Community",
-            "desc": "Đọc truyện từ TruyenQQ - Manhwa, Manga, Manhua",
+            "desc": "Đọc truyện từ TruyenQQ",
             "website": "https://truyenqqno.com",
             "version": "1.0.0",
             "icon": "icon.png",
@@ -13,15 +13,12 @@
                 {
                     "text": "Vietnamese",
                     "type": "info"
-                },
-                {
-                    "text": "Manhwa",
-                    "type": "success"
                 }
             ],
             "websiteBaseURL": "https://truyenqqno.com",
             "contentRating": "MATURE",
-            "intents": 3
+            "intents": 3,
+            "sourcePath": "TruyenQQ.js"
         }
     ]
 }

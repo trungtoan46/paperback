@@ -120,7 +120,7 @@ exports.TruyenQQInfo = {
         { text: 'Vietnamese', type: 0 },
         { text: 'Manhwa', type: 1 }
     ],
-    intents: 3
+    intents: 21
 };
 
 // Main class
@@ -184,27 +184,6 @@ class TruyenQQ {
             results: mangas,
             metadata: hasNext ? { page: page + 1 } : undefined
         });
-    }
-
-    async getHomePageSections(sectionCallback) {
-        const section = App.createHomeSection({
-            id: 'latest',
-            title: 'Mới Cập Nhật',
-            type: 0, // singleRowNormal
-            containsMoreItems: true
-        });
-        sectionCallback(section);
-        const $ = await this.DOMHTML(`${DOMAIN}/truyen-moi-cap-nhat.html`);
-        section.items = this.parser.parseMangaList($);
-        sectionCallback(section);
-    }
-
-    async getViewMoreItems(homepageSectionId, metadata) {
-        const page = metadata?.page ?? 1;
-        const $ = await this.DOMHTML(`${DOMAIN}/truyen-moi-cap-nhat/trang-${page}.html`);
-        const mangas = this.parser.parseMangaList($);
-        const hasNext = $('.pagination a.next, a[title="Next"]').length > 0;
-        return App.createPagedResults({ results: mangas, metadata: hasNext ? { page: page + 1 } : undefined });
     }
 }
 

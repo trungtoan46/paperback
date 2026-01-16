@@ -1,6 +1,6 @@
 /**
  * TruyenQQ Extension for Paperback v0.8
- * Version 1.0.6 - Final Stability Fix
+ * Version 1.0.7 - Minimalist Stability Fix
  */
 
 "use strict";
@@ -48,12 +48,12 @@ Parser.prototype.parseMangaList = function ($) {
         var title = $link.attr('title') || $elem.find('.book_name a').text().trim();
         var image = $elem.find('img').attr('data-src') || $elem.find('img').attr('src') || '';
         var subtitle = $elem.find('.chapter_name').text().trim();
-        mangas.push(App.createPartialSourceManga({
+        mangas.push({
             mangaId: mangaId,
             title: title || 'Không tiêu đề',
-            image: image,
-            subtitle: subtitle || undefined
-        }));
+            image: image || '',
+            subtitle: subtitle || ''
+        });
     });
     return mangas;
 };
@@ -64,7 +64,7 @@ Parser.prototype.parseMangaDetails = function ($, mangaId) {
         var label = $(elem).text().trim();
         var href = $(elem).attr('href');
         var id = href ? href.split('/').pop() : label;
-        tags.push(App.createTag({ label: label, id: id }));
+        tags.push({ label: label, id: id });
     });
     var title = $('.book_info h1').text().trim() || 'Không tiêu đề';
     var author = $('.list_info .org').first().text().trim() || 'Đang cập nhật';
@@ -72,11 +72,11 @@ Parser.prototype.parseMangaDetails = function ($, mangaId) {
     var desc = $('.story_introduction').text().trim() || 'Không có mô tả';
     var status = $('.list_info li').eq(2).text().trim() || 'Đang cập nhật';
 
-    return App.createSourceManga({
+    return {
         id: mangaId,
-        mangaInfo: App.createMangaInfo({
+        mangaInfo: {
             titles: [title],
-            image: image,
+            image: image || '',
             author: author,
             artist: author,
             desc: desc,
@@ -89,9 +89,9 @@ Parser.prototype.parseMangaDetails = function ($, mangaId) {
             users: 0,
             views: 0,
             covers: [],
-            tags: [App.createTagSection({ id: '0', label: 'Thể loại', tags: tags })]
-        })
-    });
+            tags: [{ id: '0', label: 'Thể loại', tags: tags }]
+        }
+    };
 };
 
 Parser.prototype.parseChapterList = function ($, mangaId) {
@@ -108,9 +108,9 @@ Parser.prototype.parseChapterList = function ($, mangaId) {
         var chapNum = chapMatch ? parseFloat(chapMatch[1]) : 0;
         var time = self.convertTime(timeText);
 
-        chapters.push(App.createChapter({
+        chapters.push({
             id: url,
-            mangaId: mangaId, // Thêm cho chắc dù spec 0.8 có thể không cần
+            mangaId: mangaId,
             name: chapterName || ("Chapter " + chapNum),
             chapNum: chapNum,
             langCode: 'vi',
@@ -118,7 +118,7 @@ Parser.prototype.parseChapterList = function ($, mangaId) {
             volume: 0,
             group: '',
             sortingIndex: index
-        }));
+        });
     });
     return chapters;
 };
@@ -132,23 +132,6 @@ Parser.prototype.parseChapterDetails = function ($) {
         }
     });
     return pages;
-};
-
-// Global variables for the app to find
-var TruyenQQInfo = {
-    version: '1.0.6',
-    name: 'TruyenQQ',
-    icon: 'icon.png',
-    author: 'Paperback Community',
-    authorWebsite: 'https://github.com/paperback-community',
-    description: 'Extension v1.0.6 - Stability Fix',
-    contentRating: 1, // MATURE
-    websiteBaseURL: DOMAIN,
-    sourceTags: [
-        { text: 'Vietnamese', type: 0 },
-        { text: 'Manhwa', type: 1 }
-    ],
-    intents: 17
 };
 
 function TruyenQQ(cheerio) {
@@ -203,7 +186,7 @@ TruyenQQ.prototype.getChapterDetails = function (mangaId, chapterId) {
     var url = chapterId.indexOf('http') === 0 ? chapterId : DOMAIN + chapterId;
     return this.DOMHTML(url).then(function ($) {
         var pages = self.parser.parseChapterDetails($);
-        return App.createChapterDetails({ id: chapterId, mangaId: mangaId, pages: pages });
+        return { id: chapterId, mangaId: mangaId, pages: pages };
     });
 };
 
@@ -217,15 +200,27 @@ TruyenQQ.prototype.getSearchResults = function (query, metadata) {
     return this.DOMHTML(url).then(function ($) {
         var mangas = self.parser.parseMangaList($);
         var hasNext = $('.pagination a.next, a[title="Next"]').length > 0;
-        return App.createPagedResults({
+        return {
             results: mangas,
             metadata: hasNext ? { page: page + 1 } : undefined
-        });
+        };
     });
 };
 
-// Export for loaders that support it
-if (typeof exports !== 'undefined') {
-    exports.TruyenQQ = TruyenQQ;
-    exports.TruyenQQInfo = TruyenQQInfo;
-}
+exports.TruyenQQInfo = {
+    version: '1.0.7',
+    name: 'TruyenQQ',
+    icon: 'icon.png',
+    author: 'Paperback Community',
+    authorWebsite: 'https://github.com/paperback-community',
+    description: 'Extension v1.0.7 - Minimalist Fix',
+    contentRating: 'MATURE',
+    websiteBaseURL: DOMAIN,
+    sourceTags: [
+        { text: 'Vietnamese', type: 0 },
+        { text: 'Manhwa', type: 1 }
+    ],
+    intents: 17
+};
+
+exports.TruyenQQ = TruyenQQ;

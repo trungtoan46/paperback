@@ -40,6 +40,9 @@ npm run build   # kiểm kiểu, đóng gói bằng @paperback/toolchain, chép 
 npm test        # build rồi chạy smoke test (không gọi mạng)
 ```
 
+Mỗi lần push, GitHub Actions (`.github/workflows/build.yml`) chạy build, smoke test và
+`scripts/check-bundle.js` (báo lỗi nếu thư mục `0.8` chưa được build lại sau khi sửa code).
+
 Thử trực tiếp trên máy: `npm run serve`, rồi trong Paperback thêm repo
 `http://<IP-máy-tính>:8080` (cùng mạng Wi-Fi).
 

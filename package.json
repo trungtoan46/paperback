@@ -1,0 +1,18 @@
+{
+  "name": "paperback-truyenqq",
+  "repositoryName": "TruyenQQ Paperback",
+  "version": "1.2.0",
+  "private": true,
+  "description": "Nguồn TruyenQQ cho Paperback 0.8",
+  "scripts": {
+    "build": "tsc --noEmit && node -e \"require('fs').mkdirSync('bundles',{recursive:true})\" && paperback bundle --folder 0.8 && node scripts/publish-bundle.js",
+    "serve": "paperback serve",
+    "test": "npm run build && node scripts/smoke-test.js"
+  },
+  "devDependencies": {
+    "@paperback/toolchain": "0.8.7",
+    "@paperback/types": "0.8.7",
+    "cheerio": "1.0.0-rc.12",
+    "typescript": "^5.4.5"
+  }
+}

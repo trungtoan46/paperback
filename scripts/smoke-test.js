@@ -24,7 +24,9 @@ function loadSource(id, routes, { quiet = false } = {}) {
             schedule: async request => {
                 const intercepted = await info.interceptor.interceptRequest(request)
                 requested.push(intercepted)
-                const route = routes[intercepted.url] ?? { status: 404, data: 'not found' }
+                // Route theo 'METHOD url' hoặc url; giá trị là chuỗi (200), { status, data } hoặc hàm (request) => ...
+                let route = routes[`${intercepted.method} ${intercepted.url}`] ?? routes[intercepted.url] ?? { status: 404, data: 'not found' }
+                if (typeof route === 'function') route = route(intercepted)
                 const { status, data } = typeof route === 'string' ? { status: 200, data: route } : route
                 const response = { data, status, headers: {}, request: intercepted }
                 return info.interceptor.interceptResponse(response)
@@ -333,11 +335,100 @@ async function testNetTruyen() {
     assert.strictEqual(source.getMangaShareUrl('one-piece'), `${D}/truyen-tranh/one-piece`)
 }
 
+async function testGocTruyenTranhVui() {
+    const D = 'https://goctruyentranhvui31.com'
+    const f = name => fixture(`goctruyentranhvui/${name}`)
+    const S = `${D}/api/v2/search?p=0`
+    let denials = 1
+    const { source, requested } = loadSource('GocTruyenTranhVui', {
+        [`${S}&orders%5B%5D=recentDate`]: f('search-latest.json'),
+        [`${D}/api/v2/search?p=1&orders%5B%5D=recentDate`]: f('search-last.json'),
+        [`${S}&orders%5B%5D=viewCount`]: f('search-last.json'),
+        [`${S}&orders%5B%5D=createdAt`]: f('search-empty.json'),
+        // 'Hoàn thành' lỗi 500 -> tiêu đề mục ghi lý do
+        [`${S}&status%5B%5D=END&orders%5B%5D=viewCount`]: { status: 500, data: 'error' },
+        [`${D}/api/category`]: f('category.json'),
+        [`${S}&searchValue=h%E1%BB%8Da%20s%C4%A9&categories%5B%5D=2&status%5B%5D=END&orders%5B%5D=viewCount`]: f('search-last.json'),
+        [`${S}&categories%5B%5D=1`]: f('search-last.json'),
+        [`${D}/truyen/hoa-si-ve-nen-ham-nguc`]: f('manga.html'),
+        [`${D}/api/comic/101/chapter?limit=-1`]: f('chapters.json'),
+        // Lần đầu bị từ chối (hết phiên) -> mở lại trang truyện -> lần hai được
+        [`POST ${D}/api/chapter/loadAll`]: request => {
+            if (request.data.includes('chapterNumber=99')) return f('loadall-denied.json')
+            return denials-- > 0 ? f('loadall-denied.json') : f('loadall.json')
+        }
+    }, { quiet: true })
+
+    // Trang chủ: danh sách từ API, mục trống/lỗi ghi lý do
+    const sections = await homeSections(source)
+    eq([...sections.values()].map(section => section.title), ['Mới cập nhật', 'Xem nhiều', 'Truyện mới (không có truyện)', 'Hoàn thành (lỗi HTTP 500)'])
+    const latest = sections.get('latest')
+    eq(latest.items, [
+        { mangaId: '101:hoa-si-ve-nen-ham-nguc', title: 'Họa Sĩ Vẽ Nên Hầm Ngục', image: `${D}/image/cover/101.jpg` },
+        { mangaId: '102:truyen-b', title: 'Truyện B', image: 'https://cdn.test/b.jpg' }
+    ])
+    assert.strictEqual(latest.containsMoreItems, true)
+    assert.strictEqual(sections.get('popular').containsMoreItems, false)
+    assert.ok(requested.filter(r => r.url.includes('/api/')).every(r => r.headers['x-requested-with'] === 'XMLHttpRequest'))
+    assert.strictEqual(requested[0].headers.referer, `${D}/`)
+
+    const more1 = await source.getViewMoreItems('latest', undefined)
+    eq(more1.metadata, { nextUrl: `${D}/api/v2/search?p=1&orders%5B%5D=recentDate` })
+    const more2 = await source.getViewMoreItems('latest', more1.metadata)
+    eq(more2.results.map(r => r.mangaId), ['104:trang-cuoi'])
+    assert.strictEqual(more2.metadata, undefined)
+
+    // Bộ lọc: thể loại từ API, tình trạng (bỏ truyện chữ), sắp xếp; kết hợp với tên
+    const tags = await source.getSearchTags()
+    eq(tags.map(t => t.id), ['genres', 'status', 'sort'])
+    eq(tags[0].tags, [{ id: 'cat:1', label: 'Action' }, { id: 'cat:2', label: 'Fantasy' }])
+    eq(tags[1].tags.map(t => t.id), ['status:PRG', 'status:END'])
+    const filtered = await source.getSearchResults(query({
+        title: 'họa sĩ',
+        includedTags: [tags[0].tags[1], tags[1].tags[1], { id: 'sort:viewCount', label: 'Lượt xem' }]
+    }), undefined)
+    eq(filtered.results.map(r => r.mangaId), ['104:trang-cuoi'])
+
+    // Chi tiết truyện
+    const manga = await source.getMangaDetails('101:hoa-si-ve-nen-ham-nguc')
+    eq(manga.mangaInfo.titles, ['Họa Sĩ Vẽ Nên Hầm Ngục'])
+    assert.strictEqual(manga.mangaInfo.image, `${D}/image/cover/101.jpg`)
+    assert.strictEqual(manga.mangaInfo.author, 'Tác giả A')
+    assert.strictEqual(manga.mangaInfo.status, 'Ongoing')
+    assert.strictEqual(manga.mangaInfo.desc, 'Một họa sĩ vô danh vẽ nên hầm ngục.')
+    assert.strictEqual(manga.mangaInfo.hentai, false)
+    eq(manga.mangaInfo.tags[0].tags, [{ id: 'name:Action', label: 'Action' }, { id: 'name:Fantasy', label: 'Fantasy' }])
+    assert.strictEqual(source.getMangaShareUrl('101:hoa-si-ve-nen-ham-nguc'), `${D}/truyen/hoa-si-ve-nen-ham-nguc`)
+    // Bấm thể loại ở trang truyện -> tìm theo mã thể loại của API
+    const byDetailTag = await source.getSearchResults(query({ includedTags: [manga.mangaInfo.tags[0].tags[0]] }), undefined)
+    eq(byDetailTag.results.map(r => r.mangaId), ['104:trang-cuoi'])
+
+    // Chương: sắp mới nhất trước; id thiếu mã truyện thì đọc từ trang HTML
+    const chapters = await source.getChapters('101:hoa-si-ve-nen-ham-nguc')
+    eq(chapters.map(c => [c.id, c.chapNum, c.sortingIndex]), [['17', 17, 0], ['16.5', 16.5, -1], ['1', 1, -2]])
+    assert.strictEqual(chapters[2].time.getTime(), 1704164645000)
+    eq((await source.getChapters('hoa-si-ve-nen-ham-nguc')).map(c => c.id), ['17', '16.5', '1'])
+
+    // Ảnh chương: POST loadAll; bị từ chối lần đầu thì mở lại trang truyện rồi thử lại
+    const before = requested.length
+    const details = await source.getChapterDetails('101:hoa-si-ve-nen-ham-nguc', '17')
+    eq(details.pages, [`${D}/image/chapter/101/17/1.jpg`, 'https://cdn.test/101/17/2.jpg'])
+    const calls = requested.slice(before)
+    eq(calls.map(r => `${r.method} ${r.url.replace(D, '')}`), [
+        'POST /api/chapter/loadAll', 'GET /truyen/hoa-si-ve-nen-ham-nguc', 'POST /api/chapter/loadAll'
+    ])
+    assert.strictEqual(calls[0].data, 'comicId=101&chapterNumber=17&nameEn=hoa-si-ve-nen-ham-nguc')
+    assert.strictEqual(calls[0].headers['content-type'], 'application/x-www-form-urlencoded')
+    await assert.rejects(source.getChapterDetails('101:hoa-si-ve-nen-ham-nguc', '99'), /cần đăng nhập/)
+}
+
 async function main() {
     await testTruyenQQ()
     console.log('TruyenQQ: đạt')
     await testNetTruyen()
     console.log('NetTruyen: đạt')
+    await testGocTruyenTranhVui()
+    console.log('GocTruyenTranhVui: đạt')
     console.log('Smoke test: tất cả kiểm tra đều đạt')
 }
 

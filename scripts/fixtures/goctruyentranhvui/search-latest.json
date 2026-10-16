@@ -1,0 +1,5 @@
+{"result":{"p":0,"next":true,"data":[
+ {"id":"101","name":"Họa Sĩ Vẽ Nên Hầm Ngục","description":"Một họa sĩ vô danh...","statusCode":"PRG","photo":"/image/cover/101.jpg","nameEn":"hoa-si-ve-nen-ham-nguc","author":"Tác giả A","category":["Action","Fantasy"]},
+ {"id":102,"name":"  Truyện  B ","description":"","statusCode":"END","photo":"https://cdn.test/b.jpg","nameEn":"truyen-b","author":"","category":null},
+ {"id":"103","name":"Thiếu nameEn","photo":"/x.jpg"}
+]},"status":true}

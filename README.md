@@ -15,9 +15,9 @@
 
 | | Nguồn | Trang web | Phiên bản |
 |:---:|---|---|:---:|
-| <img src="src/TruyenQQ/includes/icon.png" width="32"> | **TruyenQQ** | truyenqqko.com | 1.3.4 |
-| <img src="src/NetTruyen/includes/icon.png" width="32"> | **NetTruyen** | nettruyen.gg | 1.1.3 |
-| <img src="src/GocTruyenTranhVui/includes/icon.png" width="32"> | **Góc Truyện Tranh Vui** | goctruyentranhvui31.com | 1.0.0 |
+| <img src="src/TruyenQQ/includes/icon.png" width="32"> | **TruyenQQ** | truyenqqko.com | 1.3.5 |
+| <img src="src/NetTruyen/includes/icon.png" width="32"> | **NetTruyen** | nettruyen.gg | 1.1.4 |
+| <img src="src/GocTruyenTranhVui/includes/icon.png" width="32"> | **Góc Truyện Tranh Vui** | goctruyentranhvui31.com | 1.0.1 |
 
 > [!NOTE]
 > Cần app **Paperback 0.8** (đã thử trên 0.8.11). Paperback chỉ có trên **iPhone/iPad**, không dùng được trên Android.
@@ -65,6 +65,10 @@
 ### Xem truyện (Discover)
 
 Chọn tab của nguồn ở phía trên màn hình **Discover**. Kéo ngang để xem từng mục, bấm nút **↗** ở góc mục để xem thêm. Bấm một thể loại trong **Genres** để xem truyện theo thể loại.
+
+<img src="docs/images/loading.png" width="70" align="right" alt="Đang tải…">
+
+Lần đầu mở, mỗi mục hiện ô **Đang tải…** cho tới khi web trả kết quả (có thể mất vài giây). Những lần sau, danh sách lần trước **hiện ngay** rồi tự cập nhật; nếu web lỗi, danh sách cũ vẫn được giữ và tiêu đề mục ghi lý do.
 
 <table>
   <tr>
@@ -149,6 +153,7 @@ Khi có bản mới, vào **Settings → Extensions → repo** và bấm cập n
 | Không mở được truyện nào, web đã đổi tên miền | **Đổi tên miền** sang địa chỉ mới (mục 3). |
 | Góc Truyện Tranh Vui báo *Không tải được ảnh chương* | Chương đó cần đăng nhập: đăng nhập qua **Cloudflare Bypass** (mục 3). |
 | Danh sách chương bị thiếu (không có từ chương 1) | Cập nhật nguồn lên bản mới nhất (NetTruyen từ 1.1.3 đã sửa). |
+| Ô **Đang tải…** hiện rất lâu | Web đang chậm hoặc chặn. Đợi thêm; nếu quá 30 giây, thử **Cloudflare Bypass** rồi kéo xuống để tải lại. |
 | App không thấy bản mới | Đợi khoảng 5 phút, rồi mở lại **Extensions**. |
 
 **Báo lỗi:** mở [Issues](https://github.com/trungtoan46/paperback/issues) → **New issue**. Gửi kèm tên nguồn và phiên bản, ảnh chụp màn hình lỗi, và link truyện/chương trên web nếu có.
@@ -165,12 +170,12 @@ Khi có bản mới, vào **Settings → Extensions → repo** và bấm cập n
 | `src/<Nguồn>/<Nguồn>Parser.ts` | Đọc HTML/JSON của web |
 | `src/<Nguồn>/includes/icon.png` | Icon nguồn |
 | `shared/utils.ts` | Hàm dùng chung: URL, ảnh lazy-load, ngày giờ, số/tên chương, phân trang, thể loại |
-| `shared/lists.ts` | Tải danh sách (thử lần lượt nhiều URL), mục trang chủ ghi lý do khi lỗi |
+| `shared/lists.ts` | Tải danh sách (thử lần lượt nhiều URL); mục trang chủ: ô "Đang tải…", lưu danh sách lần trước, ghi lý do khi lỗi |
 | `shared/filters.ts` | Bộ lọc tình trạng/sắp xếp (đọc từ web, có giá trị mặc định) |
 | `shared/settings.ts` | Trang cài đặt nguồn: lưu và đổi tên miền |
 | `0.8/` | **Bản build** mà Paperback tải về; sinh bằng `npm run build`, không sửa tay |
 | `scripts/smoke-test.js` | Chạy bản build trong môi trường giả lập app với dữ liệu mẫu ở `scripts/fixtures/` |
-| `docs/images/` | Ảnh minh hoạ cho README |
+| `docs/images/` | Ảnh minh hoạ cho README; `loading.png` là ảnh của ô "Đang tải…" (app tải qua GitHub) |
 
 Mỗi thư mục trong `src/` phải là một nguồn (`src/X/X.ts`); code dùng chung để ở `shared/`.
 

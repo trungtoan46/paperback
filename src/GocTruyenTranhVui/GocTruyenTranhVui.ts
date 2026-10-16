@@ -23,7 +23,7 @@ import {
 } from '@paperback/types'
 import { cloudflareError } from '../../shared/utils'
 import { FilterOption, optionSection, pickOption } from '../../shared/filters'
-import { firstListWithItems, HomeSectionInfo, ListPage, loadHomeSections, toPagedResults } from '../../shared/lists'
+import { firstListWithItems, HomeSectionInfo, isLoadingTile, ListPage, loadHomeSections, toPagedResults } from '../../shared/lists'
 import { DomainSetting } from '../../shared/settings'
 import {
     ApiCategory,
@@ -41,7 +41,7 @@ const DEFAULT_DOMAIN = 'https://goctruyentranhvui31.com'
 const SOURCE_NAME = 'Góc Truyện Tranh Vui'
 
 export const GocTruyenTranhVuiInfo: SourceInfo = {
-    version: '1.0.0',
+    version: '1.0.1',
     name: SOURCE_NAME,
     icon: 'icon.png',
     author: 'trungtoan46',
@@ -141,6 +141,7 @@ export class GocTruyenTranhVui implements SearchResultsProviding, MangaProviding
     }
 
     async getMangaDetails(mangaId: string): Promise<SourceManga> {
+        if (isLoadingTile(mangaId)) throw new Error('Danh sách đang tải, vui lòng chờ một chút.')
         const domain = await this.site.load()
         const $ = await this.loadPage(`${domain}/truyen/${splitMangaId(mangaId).slug}`)
         return parseMangaDetails($, mangaId, domain)
@@ -184,7 +185,7 @@ export class GocTruyenTranhVui implements SearchResultsProviding, MangaProviding
     }
 
     async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
-        await loadHomeSections(HOME_SECTIONS, await this.site.load(), sectionCallback, urls => this.loadFirstList(urls), SOURCE_NAME)
+        await loadHomeSections(HOME_SECTIONS, await this.site.load(), sectionCallback, urls => this.loadFirstList(urls), SOURCE_NAME, this.stateManager)
     }
 
     async getViewMoreItems(homepageSectionId: string, metadata: ListMetadata | undefined): Promise<PagedResults> {

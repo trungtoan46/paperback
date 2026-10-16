@@ -84,6 +84,15 @@ async function openSettings(source) {
     return { label, input, reset }
 }
 
+/** Mọi lần gọi sectionCallback theo thứ tự (lần đầu: giữ chỗ; sau đó: kết quả). */
+async function homeCallbacks(source) {
+    const calls = []
+    await source.getHomePageSections(section => calls.push(JSON.parse(JSON.stringify({
+        id: section.id, title: section.title, items: section.items ?? [], more: section.containsMoreItems
+    }))))
+    return calls
+}
+
 const query = (fields = {}) => ({ includedTags: [], excludedTags: [], parameters: {}, ...fields })
 
 async function testTruyenQQ() {
@@ -440,6 +449,33 @@ async function testGocTruyenTranhVui() {
     assert.strictEqual(calls[0].data, 'comicId=101&chapterNumber=17&nameEn=hoa-si-ve-nen-ham-nguc')
     assert.strictEqual(calls[0].headers['content-type'], 'application/x-www-form-urlencoded')
     await assert.rejects(source.getChapterDetails('101:hoa-si-ve-nen-ham-nguc', '99'), /cần đăng nhập/)
+
+    // Trang chủ: lần đầu hiện ô "Đang tải…"; lần sau hiện ngay danh sách lần trước rồi làm mới,
+    // làm mới lỗi thì giữ danh sách cũ và ghi lý do
+    let latestCalls = 0
+    const cached = loadSource('GocTruyenTranhVui', {
+        [`${S}&orders%5B%5D=recentDate`]: () => (++latestCalls === 1 ? f('search-latest.json') : { status: 500, data: 'error' }),
+        [`${S}&orders%5B%5D=viewCount`]: f('search-last.json')
+    }, { quiet: true }).source
+    const first = await homeCallbacks(cached)
+    eq(first.slice(0, 4).map(call => call.items.map(item => item.mangaId)), [['__loading__'], ['__loading__'], ['__loading__'], ['__loading__']])
+    assert.strictEqual(first[0].items[0].title, 'Đang tải…')
+    assert.ok(first[0].items[0].image.endsWith('/docs/images/loading.png'))
+    const firstFinal = id => first.slice(4).find(call => call.id === id)
+    eq(firstFinal('latest').items.map(item => item.mangaId), ['101:hoa-si-ve-nen-ham-nguc', '102:truyen-b'])
+    eq(firstFinal('new').items, [])
+
+    const second = await homeCallbacks(cached)
+    eq(second.slice(0, 4).map(call => call.items.map(item => item.mangaId)), [
+        ['101:hoa-si-ve-nen-ham-nguc', '102:truyen-b'], ['104:trang-cuoi'], ['__loading__'], ['__loading__']
+    ])
+    eq(second.slice(0, 4)[0].items[0], { mangaId: '101:hoa-si-ve-nen-ham-nguc', title: 'Họa Sĩ Vẽ Nên Hầm Ngục', image: `${D}/image/cover/101.jpg` })
+    const secondFinal = id => second.slice(4).find(call => call.id === id)
+    assert.strictEqual(secondFinal('latest').title, 'Mới cập nhật (lỗi HTTP 500)')
+    eq(secondFinal('latest').items.map(item => item.mangaId), ['101:hoa-si-ve-nen-ham-nguc', '102:truyen-b'])
+    assert.strictEqual(secondFinal('latest').more, false)
+    eq(secondFinal('popular').items.map(item => item.mangaId), ['104:trang-cuoi'])
+    await assert.rejects(cached.getMangaDetails('__loading__'), /đang tải/)
 }
 
 async function main() {

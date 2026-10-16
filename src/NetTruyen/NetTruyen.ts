@@ -29,7 +29,7 @@ import {
     parseTagLinks,
     toPath
 } from '../../shared/utils'
-import { firstListWithItems, HomeSectionInfo, ListPage, loadHomeSections, toPagedResults } from '../../shared/lists'
+import { firstListWithItems, HomeSectionInfo, isLoadingTile, ListPage, loadHomeSections, toPagedResults } from '../../shared/lists'
 import { FilterOption, genreTags, optionSection, pickOption, readFilterOptions } from '../../shared/filters'
 import { DomainSetting } from '../../shared/settings'
 import {
@@ -45,7 +45,7 @@ import {
 const DEFAULT_DOMAIN = 'https://nettruyen.gg'
 
 export const NetTruyenInfo: SourceInfo = {
-    version: '1.1.3',
+    version: '1.1.4',
     name: 'NetTruyen',
     icon: 'icon.png',
     author: 'trungtoan46',
@@ -138,6 +138,7 @@ export class NetTruyen implements SearchResultsProviding, MangaProviding, Chapte
     }
 
     async getMangaDetails(mangaId: string): Promise<SourceManga> {
+        if (isLoadingTile(mangaId)) throw new Error('Danh sách đang tải, vui lòng chờ một chút.')
         const domain = await this.site.load()
         const $ = await this.loadPage(`${domain}/truyen-tranh/${mangaId}`)
         return parseMangaDetails($, mangaId, domain)
@@ -172,7 +173,7 @@ export class NetTruyen implements SearchResultsProviding, MangaProviding, Chapte
     }
 
     async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
-        await loadHomeSections(HOME_SECTIONS, await this.site.load(), sectionCallback, urls => this.loadFirstList(urls), 'NetTruyen')
+        await loadHomeSections(HOME_SECTIONS, await this.site.load(), sectionCallback, urls => this.loadFirstList(urls), 'NetTruyen', this.stateManager)
     }
 
     async getViewMoreItems(homepageSectionId: string, metadata: ListMetadata | undefined): Promise<PagedResults> {

@@ -30,7 +30,7 @@ import {
     toPath
 } from '../../shared/utils'
 import { FilterOption, genreTags, optionSection, pickOption } from '../../shared/filters'
-import { firstListWithItems, HomeSectionInfo, ListPage, loadHomeSections, toPagedResults } from '../../shared/lists'
+import { firstListWithItems, HomeSectionInfo, isLoadingTile, ListPage, loadHomeSections, toPagedResults } from '../../shared/lists'
 import { DomainSetting } from '../../shared/settings'
 import {
     PAGER_SELECTOR,
@@ -45,7 +45,7 @@ import {
 const DEFAULT_DOMAIN = 'https://truyenqqko.com'
 
 export const TruyenQQInfo: SourceInfo = {
-    version: '1.3.4',
+    version: '1.3.5',
     name: 'TruyenQQ',
     icon: 'icon.png',
     author: 'trungtoan46',
@@ -142,6 +142,7 @@ export class TruyenQQ implements SearchResultsProviding, MangaProviding, Chapter
     }
 
     async getMangaDetails(mangaId: string): Promise<SourceManga> {
+        if (isLoadingTile(mangaId)) throw new Error('Danh sách đang tải, vui lòng chờ một chút.')
         const domain = await this.site.load()
         const $ = await this.loadPage(`${domain}/truyen-tranh/${mangaId}`)
         return parseMangaDetails($, mangaId, domain)
@@ -161,7 +162,7 @@ export class TruyenQQ implements SearchResultsProviding, MangaProviding, Chapter
     }
 
     async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
-        await loadHomeSections(HOME_SECTIONS, await this.site.load(), sectionCallback, urls => this.loadFirstList(urls), 'TruyenQQ')
+        await loadHomeSections(HOME_SECTIONS, await this.site.load(), sectionCallback, urls => this.loadFirstList(urls), 'TruyenQQ', this.stateManager)
     }
 
     async getViewMoreItems(homepageSectionId: string, metadata: ListMetadata | undefined): Promise<PagedResults> {

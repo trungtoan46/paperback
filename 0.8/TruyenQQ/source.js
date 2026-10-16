@@ -918,26 +918,66 @@ var _Sources = (() => {
     const status = error instanceof Error ? error.message.match(/HTTP (\d{3})/)?.[1] : void 0;
     return status ? `l\u1ED7i HTTP ${status}` : "l\u1ED7i t\u1EA3i";
   }
-  async function loadHomeSections(infos, domain, sectionCallback, loadFirstList, sourceName) {
-    for (const info of infos) {
-      sectionCallback(App.createHomeSection({ id: info.id, title: info.title, type: info.type, containsMoreItems: true }));
+  var LOADING_ID = "__loading__";
+  var LOADING_IMAGE = "https://raw.githubusercontent.com/trungtoan46/paperback/main/docs/images/loading.png";
+  function isLoadingTile(mangaId) {
+    return mangaId === LOADING_ID;
+  }
+  function loadingTile() {
+    return App.createPartialSourceManga({ mangaId: LOADING_ID, title: "\u0110ang t\u1EA3i\u2026", subtitle: "Vui l\xF2ng ch\u1EDD", image: LOADING_IMAGE });
+  }
+  var cacheKey = (sectionId) => `home:${sectionId}`;
+  async function readCache(stateManager, sectionId) {
+    try {
+      const value = await stateManager.retrieve(cacheKey(sectionId));
+      if (!Array.isArray(value)) return [];
+      return value.filter((item) => typeof item?.mangaId === "string" && typeof item.title === "string").map((item) => App.createPartialSourceManga({
+        mangaId: item.mangaId,
+        title: item.title,
+        image: typeof item.image === "string" ? item.image : "",
+        subtitle: item.subtitle
+      }));
+    } catch {
+      return [];
     }
-    await Promise.all(infos.map(async (info) => {
+  }
+  async function writeCache(stateManager, sectionId, items) {
+    const plain = items.map((item) => ({ mangaId: item.mangaId, title: item.title, image: item.image, subtitle: item.subtitle }));
+    await stateManager.store(cacheKey(sectionId), plain).catch(() => void 0);
+  }
+  async function loadHomeSections(infos, domain, sectionCallback, loadFirstList, sourceName, stateManager) {
+    const cached = await Promise.all(infos.map((info) => readCache(stateManager, info.id)));
+    infos.forEach((info, index) => {
+      const items = cached[index];
+      sectionCallback(App.createHomeSection({
+        id: info.id,
+        title: info.title,
+        type: info.type,
+        items: items.length > 0 ? items : [loadingTile()],
+        containsMoreItems: true
+      }));
+    });
+    await Promise.all(infos.map(async (info, index) => {
       let title = info.title;
       let page = { results: [] };
       try {
         page = await loadFirstList(info.paths.map((path) => domain + path));
-        if (page.results.length === 0) title = `${info.title} (kh\xF4ng c\xF3 truy\u1EC7n)`;
+        if (page.results.length > 0) {
+          await writeCache(stateManager, info.id, page.results);
+        } else {
+          title = `${info.title} (kh\xF4ng c\xF3 truy\u1EC7n)`;
+        }
       } catch (error) {
         console.log(`${sourceName}: l\u1ED7i t\u1EA3i m\u1EE5c ${info.id}: ${error}`);
         title = `${info.title} (${describeError(error)})`;
       }
+      const fresh = page.results.length > 0;
       sectionCallback(App.createHomeSection({
         id: info.id,
         title,
         type: info.type,
-        items: page.results,
-        containsMoreItems: page.nextUrl !== void 0
+        items: fresh ? page.results : cached[index],
+        containsMoreItems: fresh && page.nextUrl !== void 0
       }));
     }));
   }
@@ -1138,7 +1178,7 @@ var _Sources = (() => {
   // src/TruyenQQ/TruyenQQ.ts
   var DEFAULT_DOMAIN = "https://truyenqqko.com";
   var TruyenQQInfo = {
-    version: "1.3.4",
+    version: "1.3.5",
     name: "TruyenQQ",
     icon: "icon.png",
     author: "trungtoan46",
@@ -1216,6 +1256,7 @@ var _Sources = (() => {
       });
     }
     async getMangaDetails(mangaId) {
+      if (isLoadingTile(mangaId)) throw new Error("Danh s\xE1ch \u0111ang t\u1EA3i, vui l\xF2ng ch\u1EDD m\u1ED9t ch\xFAt.");
       const domain = await this.site.load();
       const $ = await this.loadPage(`${domain}/truyen-tranh/${mangaId}`);
       return parseMangaDetails($, mangaId, domain);
@@ -1231,7 +1272,7 @@ var _Sources = (() => {
       return parseChapterDetails($, mangaId, chapterId, domain);
     }
     async getHomePageSections(sectionCallback) {
-      await loadHomeSections(HOME_SECTIONS, await this.site.load(), sectionCallback, (urls) => this.loadFirstList(urls), "TruyenQQ");
+      await loadHomeSections(HOME_SECTIONS, await this.site.load(), sectionCallback, (urls) => this.loadFirstList(urls), "TruyenQQ", this.stateManager);
     }
     async getViewMoreItems(homepageSectionId, metadata) {
       const info = HOME_SECTIONS.find((section) => section.id === homepageSectionId);

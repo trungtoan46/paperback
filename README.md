@@ -105,7 +105,7 @@ Gõ tên truyện trong tab **Search**. Ngoài **Thể loại**, mỗi nguồn c
 
 - **Read Now**: nếu chưa đọc thì mở **chương đầu tiên**; nếu đã đọc thì **đọc tiếp** chương đang dở.
 - 🔖 **Bookmark**: thêm truyện vào **Library**, app sẽ báo khi có chương mới.
-- **•••** cạnh tên nguồn: các tuỳ chọn của danh sách chương, như đổi thứ tự để xem từ chương 1.
+- **•••** cạnh tên nguồn: các tuỳ chọn của danh sách chương (xem [bên dưới](#menu--của-danh-sách-chương)).
 - Tab **History**: mở lại truyện vừa đọc.
 
 <table>
@@ -123,6 +123,28 @@ Gõ tên truyện trong tab **Search**. Ngoài **Thể loại**, mỗi nguồn c
 
 > [!NOTE]
 > Truyện có thể loại Adult, Smut, Hentai, 18+ được gắn nhãn **18+** để Paperback lọc theo cài đặt nội dung của bạn.
+
+### Menu ••• của danh sách chương
+
+<img src="docs/images/07-chapter-menu.jpg" width="250" align="right" alt="Menu danh sách chương">
+
+| Mục | Tác dụng |
+|---|---|
+| **Select** | Chọn nhiều chương để thao tác cùng lúc |
+| **Refresh Chapters** | Tải lại danh sách chương từ web (khi vừa cập nhật nguồn hoặc thấy thiếu chương mới) |
+| **Download All Chapters** | Tải toàn bộ chương về máy để đọc không cần mạng |
+| **Download Unread Chapters** | Chỉ tải các chương chưa đọc |
+| **Remove Read Chapters** | Xoá bản tải về của các chương đã đọc cho nhẹ máy |
+| **Chapter Sort** | Đảo thứ tự: chương 1 lên đầu ↔ chương mới nhất lên đầu |
+| **Group Priority** | Ưu tiên nhóm dịch khi một chương có nhiều bản dịch (các nguồn ở đây mỗi chương chỉ có một bản) |
+
+**Truyện dài (hàng nghìn chương):** Paperback không có ô tìm chương, nên:
+
+- Dùng **Chapter Sort** để đưa phía chương cần tìm lên đầu: gần cuối truyện thì để mới nhất lên đầu, gần đầu truyện thì để chương 1 lên đầu.
+- Chạm vào **thanh trạng thái** (đỉnh màn hình, chỗ giờ và pin) để cuộn nhanh về đầu danh sách.
+- Đọc một chương bất kỳ xong, nút **Read Now** chuyển thành **đọc tiếp**, lần sau không cần tìm lại.
+
+<br clear="right">
 
 ---
 

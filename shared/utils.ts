@@ -1,5 +1,5 @@
 import type { AnyNode, Cheerio, CheerioAPI, Element } from 'cheerio'
-import { Tag, TagSection } from '@paperback/types'
+import { Response, Tag, TagSection } from '@paperback/types'
 
 /** Bỏ domain, query và hash; trả về path bắt đầu bằng '/'. */
 export function toPath(href: string): string {
@@ -178,4 +178,28 @@ export function cloudflareError(status: number, sourceName: string): Error {
 
 export function isCloudflareError(error: unknown): boolean {
     return error instanceof Error && error.name === CLOUDFLARE_ERROR
+}
+
+function header(response: Response, name: string): string {
+    const headers = response.headers ?? {}
+    for (const key of Object.keys(headers)) {
+        if (key.toLowerCase() === name) return String(headers[key])
+    }
+    return ''
+}
+
+/** Trang thử thách của Cloudflare ("Just a moment...") hoặc lỗi 403/503 do Cloudflare trả về. */
+export function isCloudflareBlock(response: Response): boolean {
+    if (response.status !== 403 && response.status !== 503) return false
+    if (header(response, 'cf-mitigated') || header(response, 'server').toLowerCase().includes('cloudflare')) return true
+    return /just a moment|cf-chl|challenge-platform|cf_chl_opt|attention required/i.test((response.data ?? '').slice(0, 20000))
+}
+
+/** Ném lỗi dễ hiểu cho response lỗi: Cloudflare, giới hạn tốc độ (429) hoặc mã HTTP. */
+export function checkResponse(response: Response, sourceName: string, url: string): void {
+    if (isCloudflareBlock(response)) throw cloudflareError(response.status, sourceName)
+    if (response.status === 429) {
+        throw new Error(`${sourceName} đang giới hạn số lần truy cập (HTTP 429). Đợi ít phút rồi thử lại.`)
+    }
+    if (response.status >= 400) throw new Error(`${sourceName} trả lỗi HTTP ${response.status} cho ${url}`)
 }

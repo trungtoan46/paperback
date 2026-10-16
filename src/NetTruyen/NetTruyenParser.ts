@@ -60,6 +60,19 @@ export function parseMangaList($: CheerioAPI, domain: string): PartialSourceMang
     return results
 }
 
+/**
+ * Đoạn giới thiệu tự sinh mà web chèn vào mô tả: 'Chào mừng các đạo hữu thân mến của NetTruyen, hãy cùng
+ * thưởng thức bộ truyện tranh X đầy cuốn hút trên website của chúng tôi. Bộ truyện này thuộc về các thể loại A, B...'.
+ * Chỉ bỏ khi còn lại nội dung khác.
+ */
+export function stripBoilerplate(desc: string): string {
+    const text = desc
+        .replace(/Chào mừng các đạo hữu[\s\S]*?trên website của chúng tôi[.!]?\s*/gi, '')
+        .replace(/Bộ truyện này thuộc về các thể loại[^\n]*?(?:[.!](?=\s|$)|$)\s*/gi, '')
+        .trim()
+    return text.length > 0 ? text : desc
+}
+
 export function parseMangaDetails($: CheerioAPI, mangaId: string, domain: string): SourceManga {
     const $detail = $('#item-detail').length > 0 ? $('#item-detail') : $('body')
     const title = cleanText($detail.find('h1.title-detail, h1').first().text()) || mangaId
@@ -84,7 +97,7 @@ export function parseMangaDetails($: CheerioAPI, mangaId: string, domain: string
             image: imageFrom($detail.find('.col-image img, .detail-info img').first(), domain),
             author: author || 'Đang cập nhật',
             artist: author || 'Đang cập nhật',
-            desc: desc || 'Không có mô tả',
+            desc: stripBoilerplate(desc) || 'Không có mô tả',
             status: mapStatus(status),
             hentai: isAdultContent(tags),
             tags: genreSection(tags)

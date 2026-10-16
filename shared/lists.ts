@@ -46,6 +46,7 @@ export async function firstListWithItems(urls: string[], loadList: (url: string)
 export function describeError(error: unknown): string {
     if (isCloudflareError(error)) return 'cần Cloudflare Bypass'
     const status = error instanceof Error ? error.message.match(/HTTP (\d{3})/)?.[1] : undefined
+    if (status === '429') return 'web đang giới hạn, thử lại sau'
     return status ? `lỗi HTTP ${status}` : 'lỗi tải'
 }
 

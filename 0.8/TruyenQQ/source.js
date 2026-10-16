@@ -873,6 +873,25 @@ var _Sources = (() => {
   function isCloudflareError(error) {
     return error instanceof Error && error.name === CLOUDFLARE_ERROR;
   }
+  function header(response, name) {
+    const headers = response.headers ?? {};
+    for (const key of Object.keys(headers)) {
+      if (key.toLowerCase() === name) return String(headers[key]);
+    }
+    return "";
+  }
+  function isCloudflareBlock(response) {
+    if (response.status !== 403 && response.status !== 503) return false;
+    if (header(response, "cf-mitigated") || header(response, "server").toLowerCase().includes("cloudflare")) return true;
+    return /just a moment|cf-chl|challenge-platform|cf_chl_opt|attention required/i.test((response.data ?? "").slice(0, 2e4));
+  }
+  function checkResponse(response, sourceName, url) {
+    if (isCloudflareBlock(response)) throw cloudflareError(response.status, sourceName);
+    if (response.status === 429) {
+      throw new Error(`${sourceName} \u0111ang gi\u1EDBi h\u1EA1n s\u1ED1 l\u1EA7n truy c\u1EADp (HTTP 429). \u0110\u1EE3i \xEDt ph\xFAt r\u1ED3i th\u1EED l\u1EA1i.`);
+    }
+    if (response.status >= 400) throw new Error(`${sourceName} tr\u1EA3 l\u1ED7i HTTP ${response.status} cho ${url}`);
+  }
 
   // shared/filters.ts
   function optionSection(prefix, label, options) {
@@ -916,6 +935,7 @@ var _Sources = (() => {
   function describeError(error) {
     if (isCloudflareError(error)) return "c\u1EA7n Cloudflare Bypass";
     const status = error instanceof Error ? error.message.match(/HTTP (\d{3})/)?.[1] : void 0;
+    if (status === "429") return "web \u0111ang gi\u1EDBi h\u1EA1n, th\u1EED l\u1EA1i sau";
     return status ? `l\u1ED7i HTTP ${status}` : "l\u1ED7i t\u1EA3i";
   }
   var LOADING_ID = "__loading__";
@@ -1056,6 +1076,31 @@ var _Sources = (() => {
     }
   };
 
+  // shared/cache.ts
+  var ShortCache = class {
+    constructor(ttlMs, maxEntries = 10) {
+      this.ttlMs = ttlMs;
+      this.maxEntries = maxEntries;
+      this.entries = /* @__PURE__ */ new Map();
+    }
+    get(key, load) {
+      const now = Date.now();
+      const hit = this.entries.get(key);
+      if (hit && hit.expires > now) return hit.value;
+      const value = load();
+      this.entries.set(key, { expires: now + this.ttlMs, value });
+      value.catch(() => {
+        if (this.entries.get(key)?.value === value) this.entries.delete(key);
+      });
+      while (this.entries.size > this.maxEntries) {
+        const oldest = this.entries.keys().next().value;
+        if (oldest === void 0) break;
+        this.entries.delete(oldest);
+      }
+      return value;
+    }
+  };
+
   // src/TruyenQQ/TruyenQQParser.ts
   var PAGER_SELECTOR = ".page_redirect, .pagination, .page_redirect_2";
   function mangaIdFromHref(href) {
@@ -1178,7 +1223,7 @@ var _Sources = (() => {
   // src/TruyenQQ/TruyenQQ.ts
   var DEFAULT_DOMAIN = "https://truyenqqko.com";
   var TruyenQQInfo = {
-    version: "1.3.5",
+    version: "1.3.6",
     name: "TruyenQQ",
     icon: "icon.png",
     author: "trungtoan46",
@@ -1219,6 +1264,7 @@ var _Sources = (() => {
       this.cheerio = cheerio;
       this.stateManager = App.createSourceStateManager();
       this.site = new DomainSetting(this.stateManager, DEFAULT_DOMAIN);
+      this.mangaPages = new ShortCache(60 * 1e3);
       this.requestManager = App.createRequestManager({
         // Web chặn khi gọi dồn dập (Mihon giới hạn 1 request / 2 giây); 1/giây làm Discover tải quá chậm.
         requestsPerSecond: 2,
@@ -1237,6 +1283,7 @@ var _Sources = (() => {
           }
         }
       });
+      this.site.load().catch(() => void 0);
     }
     async getSourceMenu() {
       return this.site.menu();
@@ -1257,14 +1304,18 @@ var _Sources = (() => {
     }
     async getMangaDetails(mangaId) {
       if (isLoadingTile(mangaId)) throw new Error("Danh s\xE1ch \u0111ang t\u1EA3i, vui l\xF2ng ch\u1EDD m\u1ED9t ch\xFAt.");
-      const domain = await this.site.load();
-      const $ = await this.loadPage(`${domain}/truyen-tranh/${mangaId}`);
+      const { $, domain } = await this.loadMangaPage(mangaId);
       return parseMangaDetails($, mangaId, domain);
     }
     async getChapters(mangaId) {
+      return parseChapters((await this.loadMangaPage(mangaId)).$);
+    }
+    /** Trang truyện dùng cho cả chi tiết lẫn danh sách chương: nhớ tạm để không tải hai lần. */
+    async loadMangaPage(mangaId) {
       const domain = await this.site.load();
-      const $ = await this.loadPage(`${domain}/truyen-tranh/${mangaId}`);
-      return parseChapters($);
+      const url = `${domain}/truyen-tranh/${mangaId}`;
+      const html = await this.mangaPages.get(url, () => this.fetchHtml(url));
+      return { $: this.cheerio.load(html), domain };
     }
     async getChapterDetails(mangaId, chapterId) {
       const domain = await this.site.load();
@@ -1337,18 +1388,12 @@ var _Sources = (() => {
       return { results: parseMangaList($, domain), nextUrl: nextUrl !== url ? nextUrl : void 0 };
     }
     async loadPage(url) {
-      const request = App.createRequest({ url, method: "GET" });
-      const response = await this.requestManager.schedule(request, 1);
-      this.checkResponse(response);
-      return this.cheerio.load(response.data ?? "");
+      return this.cheerio.load(await this.fetchHtml(url));
     }
-    checkResponse(response) {
-      if (response.status === 403 || response.status === 503) {
-        throw cloudflareError(response.status, "TruyenQQ");
-      }
-      if (response.status >= 400) {
-        throw new Error(`TruyenQQ tr\u1EA3 l\u1ED7i HTTP ${response.status} cho ${response.request?.url ?? ""}`);
-      }
+    async fetchHtml(url) {
+      const response = await this.requestManager.schedule(App.createRequest({ url, method: "GET" }), 1);
+      checkResponse(response, "TruyenQQ", url);
+      return response.data ?? "";
     }
   };
   return __toCommonJS(TruyenQQ_exports);

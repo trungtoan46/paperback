@@ -24,7 +24,7 @@ import {
 } from '@paperback/types'
 import {
     absoluteUrl,
-    cloudflareError,
+    checkResponse,
     parseNextPageUrl,
     parseTagLinks,
     toPath
@@ -32,6 +32,7 @@ import {
 import { FilterOption, genreTags, optionSection, pickOption } from '../../shared/filters'
 import { firstListWithItems, HomeSectionInfo, isLoadingTile, ListPage, loadHomeSections, toPagedResults } from '../../shared/lists'
 import { DomainSetting } from '../../shared/settings'
+import { ShortCache } from '../../shared/cache'
 import {
     PAGER_SELECTOR,
     parseNextPageByNumber,
@@ -45,7 +46,7 @@ import {
 const DEFAULT_DOMAIN = 'https://truyenqqko.com'
 
 export const TruyenQQInfo: SourceInfo = {
-    version: '1.3.5',
+    version: '1.3.6',
     name: 'TruyenQQ',
     icon: 'icon.png',
     author: 'trungtoan46',
@@ -96,10 +97,14 @@ function genreCode(tag: Tag): string | undefined {
 export class TruyenQQ implements SearchResultsProviding, MangaProviding, ChapterProviding,
     HomePageSectionsProviding, CloudflareBypassRequestProviding {
 
-    constructor(private cheerio: CheerioAPI) { }
+    constructor(private cheerio: CheerioAPI) {
+        // Nạp sẵn tên miền đã lưu để getMangaShareUrl (không chờ được) dùng đúng tên miền.
+        this.site.load().catch(() => undefined)
+    }
 
     readonly stateManager = App.createSourceStateManager()
     private readonly site = new DomainSetting(this.stateManager, DEFAULT_DOMAIN)
+    private readonly mangaPages = new ShortCache<string>(60 * 1000)
     private genres: Promise<Tag[]> | undefined
 
     readonly requestManager = App.createRequestManager({
@@ -143,15 +148,20 @@ export class TruyenQQ implements SearchResultsProviding, MangaProviding, Chapter
 
     async getMangaDetails(mangaId: string): Promise<SourceManga> {
         if (isLoadingTile(mangaId)) throw new Error('Danh sách đang tải, vui lòng chờ một chút.')
-        const domain = await this.site.load()
-        const $ = await this.loadPage(`${domain}/truyen-tranh/${mangaId}`)
+        const { $, domain } = await this.loadMangaPage(mangaId)
         return parseMangaDetails($, mangaId, domain)
     }
 
     async getChapters(mangaId: string): Promise<Chapter[]> {
+        return parseChapters((await this.loadMangaPage(mangaId)).$)
+    }
+
+    /** Trang truyện dùng cho cả chi tiết lẫn danh sách chương: nhớ tạm để không tải hai lần. */
+    private async loadMangaPage(mangaId: string): Promise<{ $: CheerioAPI, domain: string }> {
         const domain = await this.site.load()
-        const $ = await this.loadPage(`${domain}/truyen-tranh/${mangaId}`)
-        return parseChapters($)
+        const url = `${domain}/truyen-tranh/${mangaId}`
+        const html = await this.mangaPages.get(url, () => this.fetchHtml(url))
+        return { $: this.cheerio.load(html), domain }
     }
 
     async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
@@ -243,18 +253,12 @@ export class TruyenQQ implements SearchResultsProviding, MangaProviding, Chapter
     }
 
     private async loadPage(url: string): Promise<CheerioAPI> {
-        const request = App.createRequest({ url, method: 'GET' })
-        const response = await this.requestManager.schedule(request, 1)
-        this.checkResponse(response)
-        return this.cheerio.load(response.data ?? '')
+        return this.cheerio.load(await this.fetchHtml(url))
     }
 
-    private checkResponse(response: Response): void {
-        if (response.status === 403 || response.status === 503) {
-            throw cloudflareError(response.status, 'TruyenQQ')
-        }
-        if (response.status >= 400) {
-            throw new Error(`TruyenQQ trả lỗi HTTP ${response.status} cho ${response.request?.url ?? ''}`)
-        }
+    private async fetchHtml(url: string): Promise<string> {
+        const response = await this.requestManager.schedule(App.createRequest({ url, method: 'GET' }), 1)
+        checkResponse(response, 'TruyenQQ', url)
+        return response.data ?? ''
     }
 }

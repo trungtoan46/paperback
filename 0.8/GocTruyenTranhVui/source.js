@@ -768,6 +768,25 @@ var _Sources = (() => {
   function isCloudflareError(error) {
     return error instanceof Error && error.name === CLOUDFLARE_ERROR;
   }
+  function header(response, name) {
+    const headers = response.headers ?? {};
+    for (const key of Object.keys(headers)) {
+      if (key.toLowerCase() === name) return String(headers[key]);
+    }
+    return "";
+  }
+  function isCloudflareBlock(response) {
+    if (response.status !== 403 && response.status !== 503) return false;
+    if (header(response, "cf-mitigated") || header(response, "server").toLowerCase().includes("cloudflare")) return true;
+    return /just a moment|cf-chl|challenge-platform|cf_chl_opt|attention required/i.test((response.data ?? "").slice(0, 2e4));
+  }
+  function checkResponse(response, sourceName, url) {
+    if (isCloudflareBlock(response)) throw cloudflareError(response.status, sourceName);
+    if (response.status === 429) {
+      throw new Error(`${sourceName} \u0111ang gi\u1EDBi h\u1EA1n s\u1ED1 l\u1EA7n truy c\u1EADp (HTTP 429). \u0110\u1EE3i \xEDt ph\xFAt r\u1ED3i th\u1EED l\u1EA1i.`);
+    }
+    if (response.status >= 400) throw new Error(`${sourceName} tr\u1EA3 l\u1ED7i HTTP ${response.status} cho ${url}`);
+  }
 
   // shared/filters.ts
   function optionSection(prefix, label, options) {
@@ -808,6 +827,7 @@ var _Sources = (() => {
   function describeError(error) {
     if (isCloudflareError(error)) return "c\u1EA7n Cloudflare Bypass";
     const status = error instanceof Error ? error.message.match(/HTTP (\d{3})/)?.[1] : void 0;
+    if (status === "429") return "web \u0111ang gi\u1EDBi h\u1EA1n, th\u1EED l\u1EA1i sau";
     return status ? `l\u1ED7i HTTP ${status}` : "l\u1ED7i t\u1EA3i";
   }
   var LOADING_ID = "__loading__";
@@ -948,6 +968,31 @@ var _Sources = (() => {
     }
   };
 
+  // shared/cache.ts
+  var ShortCache = class {
+    constructor(ttlMs, maxEntries = 10) {
+      this.ttlMs = ttlMs;
+      this.maxEntries = maxEntries;
+      this.entries = /* @__PURE__ */ new Map();
+    }
+    get(key, load) {
+      const now = Date.now();
+      const hit = this.entries.get(key);
+      if (hit && hit.expires > now) return hit.value;
+      const value = load();
+      this.entries.set(key, { expires: now + this.ttlMs, value });
+      value.catch(() => {
+        if (this.entries.get(key)?.value === value) this.entries.delete(key);
+      });
+      while (this.entries.size > this.maxEntries) {
+        const oldest = this.entries.keys().next().value;
+        if (oldest === void 0) break;
+        this.entries.delete(oldest);
+      }
+      return value;
+    }
+  };
+
   // src/GocTruyenTranhVui/GocTruyenTranhVuiParser.ts
   function apiResult(json, fallbackMessage) {
     let body;
@@ -1059,7 +1104,7 @@ var _Sources = (() => {
   var DEFAULT_DOMAIN = "https://goctruyentranhvui31.com";
   var SOURCE_NAME = "G\xF3c Truy\u1EC7n Tranh Vui";
   var GocTruyenTranhVuiInfo = {
-    version: "1.0.1",
+    version: "1.0.2",
     name: SOURCE_NAME,
     icon: "icon.png",
     author: "trungtoan46",
@@ -1098,6 +1143,7 @@ var _Sources = (() => {
       this.cheerio = cheerio;
       this.stateManager = App.createSourceStateManager();
       this.site = new DomainSetting(this.stateManager, DEFAULT_DOMAIN);
+      this.mangaPages = new ShortCache(60 * 1e3);
       this.requestManager = App.createRequestManager({
         requestsPerSecond: 3,
         requestTimeout: 2e4,
@@ -1115,6 +1161,7 @@ var _Sources = (() => {
           }
         }
       });
+      this.site.load().catch(() => void 0);
     }
     async getSourceMenu() {
       return this.site.menu();
@@ -1135,8 +1182,7 @@ var _Sources = (() => {
     }
     async getMangaDetails(mangaId) {
       if (isLoadingTile(mangaId)) throw new Error("Danh s\xE1ch \u0111ang t\u1EA3i, vui l\xF2ng ch\u1EDD m\u1ED9t ch\xFAt.");
-      const domain = await this.site.load();
-      const $ = await this.loadPage(`${domain}/truyen/${splitMangaId(mangaId).slug}`);
+      const { $, domain } = await this.loadMangaPage(splitMangaId(mangaId).slug);
       return parseMangaDetails($, mangaId, domain);
     }
     async getChapters(mangaId) {
@@ -1232,8 +1278,7 @@ var _Sources = (() => {
     async resolveIds(mangaId) {
       const { id, slug } = splitMangaId(mangaId);
       if (id) return { id, slug };
-      const $ = await this.loadPage(`${await this.site.load()}/truyen/${slug}`);
-      const comicId = parseComicId($);
+      const comicId = parseComicId((await this.loadMangaPage(slug)).$);
       if (!comicId) throw new Error(`${SOURCE_NAME}: kh\xF4ng t\xECm th\u1EA5y m\xE3 truy\u1EC7n trong trang ${slug}`);
       return { id: comicId, slug };
     }
@@ -1244,9 +1289,12 @@ var _Sources = (() => {
       const response = await this.fetch(url, { headers: XHR });
       return parseSearchPage(response.data ?? "", url, await this.site.load());
     }
-    async loadPage(url) {
-      const response = await this.fetch(url);
-      return this.cheerio.load(response.data ?? "");
+    /** Trang truyện dùng cho chi tiết và để đọc mã truyện: nhớ tạm để không tải hai lần. */
+    async loadMangaPage(slug) {
+      const domain = await this.site.load();
+      const url = `${domain}/truyen/${slug}`;
+      const html = await this.mangaPages.get(url, async () => (await this.fetch(url)).data ?? "");
+      return { $: this.cheerio.load(html), domain };
     }
     async fetch(url, options = {}) {
       const request = App.createRequest({
@@ -1256,13 +1304,7 @@ var _Sources = (() => {
         data: options.data
       });
       const response = await this.requestManager.schedule(request, 1);
-      if (options.allowErrors) return response;
-      if (response.status === 403 || response.status === 503) {
-        throw cloudflareError(response.status, SOURCE_NAME);
-      }
-      if (response.status >= 400) {
-        throw new Error(`${SOURCE_NAME} tr\u1EA3 l\u1ED7i HTTP ${response.status} cho ${url}`);
-      }
+      if (!options.allowErrors) checkResponse(response, SOURCE_NAME, url);
       return response;
     }
   };

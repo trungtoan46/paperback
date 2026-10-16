@@ -21,10 +21,11 @@ import {
     SourceManga,
     TagSection
 } from '@paperback/types'
-import { cloudflareError } from '../../shared/utils'
+import { checkResponse } from '../../shared/utils'
 import { FilterOption, optionSection, pickOption } from '../../shared/filters'
 import { firstListWithItems, HomeSectionInfo, isLoadingTile, ListPage, loadHomeSections, toPagedResults } from '../../shared/lists'
 import { DomainSetting } from '../../shared/settings'
+import { ShortCache } from '../../shared/cache'
 import {
     ApiCategory,
     parseCategories,
@@ -41,7 +42,7 @@ const DEFAULT_DOMAIN = 'https://goctruyentranhvui31.com'
 const SOURCE_NAME = 'Góc Truyện Tranh Vui'
 
 export const GocTruyenTranhVuiInfo: SourceInfo = {
-    version: '1.0.1',
+    version: '1.0.2',
     name: SOURCE_NAME,
     icon: 'icon.png',
     author: 'trungtoan46',
@@ -96,10 +97,14 @@ interface FetchOptions {
 export class GocTruyenTranhVui implements SearchResultsProviding, MangaProviding, ChapterProviding,
     HomePageSectionsProviding, CloudflareBypassRequestProviding {
 
-    constructor(private cheerio: CheerioAPI) { }
+    constructor(private cheerio: CheerioAPI) {
+        // Nạp sẵn tên miền đã lưu để getMangaShareUrl (không chờ được) dùng đúng tên miền.
+        this.site.load().catch(() => undefined)
+    }
 
     readonly stateManager = App.createSourceStateManager()
     private readonly site = new DomainSetting(this.stateManager, DEFAULT_DOMAIN)
+    private readonly mangaPages = new ShortCache<string>(60 * 1000)
     private categories: Promise<ApiCategory[]> | undefined
 
     readonly requestManager = App.createRequestManager({
@@ -142,8 +147,7 @@ export class GocTruyenTranhVui implements SearchResultsProviding, MangaProviding
 
     async getMangaDetails(mangaId: string): Promise<SourceManga> {
         if (isLoadingTile(mangaId)) throw new Error('Danh sách đang tải, vui lòng chờ một chút.')
-        const domain = await this.site.load()
-        const $ = await this.loadPage(`${domain}/truyen/${splitMangaId(mangaId).slug}`)
+        const { $, domain } = await this.loadMangaPage(splitMangaId(mangaId).slug)
         return parseMangaDetails($, mangaId, domain)
     }
 
@@ -255,8 +259,7 @@ export class GocTruyenTranhVui implements SearchResultsProviding, MangaProviding
     private async resolveIds(mangaId: string): Promise<{ id: string, slug: string }> {
         const { id, slug } = splitMangaId(mangaId)
         if (id) return { id, slug }
-        const $ = await this.loadPage(`${await this.site.load()}/truyen/${slug}`)
-        const comicId = parseComicId($)
+        const comicId = parseComicId((await this.loadMangaPage(slug)).$)
         if (!comicId) throw new Error(`${SOURCE_NAME}: không tìm thấy mã truyện trong trang ${slug}`)
         return { id: comicId, slug }
     }
@@ -270,9 +273,12 @@ export class GocTruyenTranhVui implements SearchResultsProviding, MangaProviding
         return parseSearchPage(response.data ?? '', url, await this.site.load())
     }
 
-    private async loadPage(url: string): Promise<CheerioAPI> {
-        const response = await this.fetch(url)
-        return this.cheerio.load(response.data ?? '')
+    /** Trang truyện dùng cho chi tiết và để đọc mã truyện: nhớ tạm để không tải hai lần. */
+    private async loadMangaPage(slug: string): Promise<{ $: CheerioAPI, domain: string }> {
+        const domain = await this.site.load()
+        const url = `${domain}/truyen/${slug}`
+        const html = await this.mangaPages.get(url, async () => (await this.fetch(url)).data ?? '')
+        return { $: this.cheerio.load(html), domain }
     }
 
     private async fetch(url: string, options: FetchOptions = {}): Promise<Response> {
@@ -283,13 +289,7 @@ export class GocTruyenTranhVui implements SearchResultsProviding, MangaProviding
             data: options.data
         })
         const response = await this.requestManager.schedule(request, 1)
-        if (options.allowErrors) return response
-        if (response.status === 403 || response.status === 503) {
-            throw cloudflareError(response.status, SOURCE_NAME)
-        }
-        if (response.status >= 400) {
-            throw new Error(`${SOURCE_NAME} trả lỗi HTTP ${response.status} cho ${url}`)
-        }
+        if (!options.allowErrors) checkResponse(response, SOURCE_NAME, url)
         return response
     }
 }

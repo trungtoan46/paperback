@@ -23,7 +23,7 @@ import {
 } from '@paperback/types'
 import {
     absoluteUrl,
-    cloudflareError,
+    checkResponse,
     isCloudflareError,
     parseNextPageUrl,
     parseTagLinks,
@@ -32,6 +32,7 @@ import {
 import { firstListWithItems, HomeSectionInfo, isLoadingTile, ListPage, loadHomeSections, toPagedResults } from '../../shared/lists'
 import { FilterOption, genreTags, optionSection, pickOption, readFilterOptions } from '../../shared/filters'
 import { DomainSetting } from '../../shared/settings'
+import { ShortCache } from '../../shared/cache'
 import {
     PAGER_SELECTOR,
     parseChapterApi,
@@ -45,7 +46,7 @@ import {
 const DEFAULT_DOMAIN = 'https://nettruyen.gg'
 
 export const NetTruyenInfo: SourceInfo = {
-    version: '1.1.4',
+    version: '1.1.5',
     name: 'NetTruyen',
     icon: 'icon.png',
     author: 'trungtoan46',
@@ -94,10 +95,14 @@ const DEFAULT_SORT: FilterOption[] = [
 export class NetTruyen implements SearchResultsProviding, MangaProviding, ChapterProviding,
     HomePageSectionsProviding, CloudflareBypassRequestProviding {
 
-    constructor(private cheerio: CheerioAPI) { }
+    constructor(private cheerio: CheerioAPI) {
+        // Nạp sẵn tên miền đã lưu để getMangaShareUrl (không chờ được) dùng đúng tên miền.
+        this.site.load().catch(() => undefined)
+    }
 
     readonly stateManager = App.createSourceStateManager()
     private readonly site = new DomainSetting(this.stateManager, DEFAULT_DOMAIN)
+    private readonly mangaPages = new ShortCache<string>(60 * 1000)
 
     readonly requestManager = App.createRequestManager({
         requestsPerSecond: 4,
@@ -139,8 +144,7 @@ export class NetTruyen implements SearchResultsProviding, MangaProviding, Chapte
 
     async getMangaDetails(mangaId: string): Promise<SourceManga> {
         if (isLoadingTile(mangaId)) throw new Error('Danh sách đang tải, vui lòng chờ một chút.')
-        const domain = await this.site.load()
-        const $ = await this.loadPage(`${domain}/truyen-tranh/${mangaId}`)
+        const { $, domain } = await this.loadMangaPage(mangaId)
         return parseMangaDetails($, mangaId, domain)
     }
 
@@ -159,7 +163,7 @@ export class NetTruyen implements SearchResultsProviding, MangaProviding, Chapte
             console.log(`NetTruyen: API danh sách chương lỗi, dùng danh sách trong trang: ${error}`)
         }
 
-        const chapters = parseChapters(await this.loadPage(`${domain}/truyen-tranh/${mangaId}`))
+        const chapters = parseChapters((await this.loadMangaPage(mangaId)).$)
         if (chapters.length === 0 && apiError) {
             throw new Error('NetTruyen: không đọc được danh sách chương (web có thể đã đổi giao diện)')
         }
@@ -234,6 +238,14 @@ export class NetTruyen implements SearchResultsProviding, MangaProviding, Chapte
         }
     }
 
+    /** Trang truyện dùng cho cả chi tiết lẫn danh sách chương dự phòng: nhớ tạm để không tải hai lần. */
+    private async loadMangaPage(mangaId: string): Promise<{ $: CheerioAPI, domain: string }> {
+        const domain = await this.site.load()
+        const url = `${domain}/truyen-tranh/${mangaId}`
+        const html = await this.mangaPages.get(url, async () => (await this.fetch(url)).data ?? '')
+        return { $: this.cheerio.load(html), domain }
+    }
+
     private async loadPage(url: string): Promise<CheerioAPI> {
         const response = await this.fetch(url)
         return this.cheerio.load(response.data ?? '')
@@ -242,12 +254,7 @@ export class NetTruyen implements SearchResultsProviding, MangaProviding, Chapte
     private async fetch(url: string, headers: Record<string, string> = {}): Promise<Response> {
         const request = App.createRequest({ url, method: 'GET', headers })
         const response = await this.requestManager.schedule(request, 1)
-        if (response.status === 403 || response.status === 503) {
-            throw cloudflareError(response.status, 'NetTruyen')
-        }
-        if (response.status >= 400) {
-            throw new Error(`NetTruyen trả lỗi HTTP ${response.status} cho ${url}`)
-        }
+        checkResponse(response, 'NetTruyen', url)
         return response
     }
 }

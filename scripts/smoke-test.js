@@ -27,8 +27,8 @@ function loadSource(id, routes, { quiet = false } = {}) {
                 // Route theo 'METHOD url' hoặc url; giá trị là chuỗi (200), { status, data } hoặc hàm (request) => ...
                 let route = routes[`${intercepted.method} ${intercepted.url}`] ?? routes[intercepted.url] ?? { status: 404, data: 'not found' }
                 if (typeof route === 'function') route = route(intercepted)
-                const { status, data } = typeof route === 'string' ? { status: 200, data: route } : route
-                const response = { data, status, headers: {}, request: intercepted }
+                const { status, data, headers = {} } = typeof route === 'string' ? { status: 200, data: route } : route
+                const response = { data, status, headers, request: intercepted }
                 return info.interceptor.interceptResponse(response)
             }
         }),
@@ -182,8 +182,9 @@ async function testTruyenQQ() {
     assert.strictEqual(manga.mangaInfo.hentai, false)
     assert.strictEqual(source.getMangaShareUrl('dao-hai-tac-128'), `${D}/truyen-tranh/dao-hai-tac-128`)
 
-    // Danh sách chương
+    // Danh sách chương: dùng lại trang truyện vừa tải cho chi tiết (không tải lần hai)
     const chapters = await source.getChapters('dao-hai-tac-128')
+    assert.strictEqual(requested.filter(r => r.url === `${D}/truyen-tranh/dao-hai-tac-128`).length, 1)
     eq(chapters.map(c => c.chapNum), [1100, 1099.5, 1])
     eq(chapters.map(c => c.sortingIndex), [0, -1, -2])
     assert.strictEqual(chapters[0].id, '/truyen-tranh/dao-hai-tac-128-chap-1100')
@@ -239,6 +240,8 @@ async function testNetTruyen() {
         [`${D}/truyen-tranh/dai-phung`]: f('manga.html'),
         [`${D}/Comic/Services/ComicService.asmx/ChapterList?slug=dai-phung`]: f('chapters-full.json'),
         [`${D}/Comic/Services/ComicService.asmx/ChapterList?slug=cf-test`]: { status: 503, data: 'Just a moment...' },
+        [`${D}/truyen-tranh/forbidden`]: { status: 403, data: '<html>Forbidden</html>' },
+        [`${D}/truyen-tranh/cf-header`]: { status: 403, data: '<html></html>', headers: { Server: 'cloudflare' } },
         [`${D}/Comic/Services/ComicService.asmx/ChapterList?slug=van-co-chi-ton`]: f('chapters.json'),
         [`${D}/truyen-tranh/one-piece/chapter-1100/123456`]: f('chapter.html'),
         [`${D}/tim-truyen/action-95?status=2&sort=11`]: f('last-page.html'),
@@ -294,6 +297,7 @@ async function testNetTruyen() {
     assert.strictEqual(manga.mangaInfo.image, 'https://img.test/one-piece-big.jpg')
     assert.strictEqual(manga.mangaInfo.author, 'Oda Eiichiro')
     assert.strictEqual(manga.mangaInfo.status, 'Completed')
+    // Bỏ đoạn giới thiệu tự sinh 'Chào mừng các đạo hữu...' (tên truyện có dấu chấm vẫn bỏ đúng)
     assert.strictEqual(manga.mangaInfo.desc, 'Hành trình của Luffy.')
     eq(manga.mangaInfo.tags[0].tags.map(t => t.label), ['Action', 'Comedy'])
     const unknownAuthor = await source.getMangaDetails('van-co-chi-ton')
@@ -334,6 +338,9 @@ async function testNetTruyen() {
     eq(details.pages, ['https://img.test/p/1.jpg', 'https://img.test/p/2.jpg', 'https://img.test/p/3.jpg'])
 
     await assert.rejects(source.getMangaDetails('khong-co'), /HTTP 404/)
+    // 403 thường báo mã HTTP; 403 của Cloudflare (header/trang thử thách) báo cần Cloudflare Bypass
+    await assert.rejects(source.getMangaDetails('forbidden'), error => /HTTP 403/.test(error.message) && !/Cloudflare/.test(error.message))
+    await assert.rejects(source.getMangaDetails('cf-header'), /Cloudflare/)
     assert.strictEqual((await source.getCloudflareBypassRequestAsync()).url, D)
 
     // Truyện có thể loại người lớn được đánh dấu 18+
@@ -345,13 +352,14 @@ async function testNetTruyen() {
         [`${D}/tim-truyen`]: '<html><body>Không có truyện</body></html>',
         [`${D}/tim-truyen?sort=0`]: '<html></html>',
         [`${D}/`]: '<html></html>',
-        [`${D}/tim-truyen?sort=11`]: { status: 503, data: 'Just a moment...' }
+        [`${D}/tim-truyen?sort=11`]: { status: 503, data: 'Just a moment...' },
+        [`${D}/tim-truyen?status=2`]: { status: 429, data: 'Too Many Requests' }
     }, { quiet: true }).source
     const brokenSections = await homeSections(broken)
     eq([...brokenSections.values()].map(section => section.title), [
         'Mới cập nhật (không có truyện)',
         'Top tháng (cần Cloudflare Bypass)',
-        'Hoàn thành (lỗi HTTP 404)'
+        'Hoàn thành (web đang giới hạn, thử lại sau)'
     ])
     eq([...brokenSections.values()].map(section => section.items.length), [0, 0, 0])
 

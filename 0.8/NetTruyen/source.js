@@ -873,6 +873,25 @@ var _Sources = (() => {
   function isCloudflareError(error) {
     return error instanceof Error && error.name === CLOUDFLARE_ERROR;
   }
+  function header(response, name) {
+    const headers = response.headers ?? {};
+    for (const key of Object.keys(headers)) {
+      if (key.toLowerCase() === name) return String(headers[key]);
+    }
+    return "";
+  }
+  function isCloudflareBlock(response) {
+    if (response.status !== 403 && response.status !== 503) return false;
+    if (header(response, "cf-mitigated") || header(response, "server").toLowerCase().includes("cloudflare")) return true;
+    return /just a moment|cf-chl|challenge-platform|cf_chl_opt|attention required/i.test((response.data ?? "").slice(0, 2e4));
+  }
+  function checkResponse(response, sourceName, url) {
+    if (isCloudflareBlock(response)) throw cloudflareError(response.status, sourceName);
+    if (response.status === 429) {
+      throw new Error(`${sourceName} \u0111ang gi\u1EDBi h\u1EA1n s\u1ED1 l\u1EA7n truy c\u1EADp (HTTP 429). \u0110\u1EE3i \xEDt ph\xFAt r\u1ED3i th\u1EED l\u1EA1i.`);
+    }
+    if (response.status >= 400) throw new Error(`${sourceName} tr\u1EA3 l\u1ED7i HTTP ${response.status} cho ${url}`);
+  }
 
   // shared/lists.ts
   function toPagedResults(page) {
@@ -900,6 +919,7 @@ var _Sources = (() => {
   function describeError(error) {
     if (isCloudflareError(error)) return "c\u1EA7n Cloudflare Bypass";
     const status = error instanceof Error ? error.message.match(/HTTP (\d{3})/)?.[1] : void 0;
+    if (status === "429") return "web \u0111ang gi\u1EDBi h\u1EA1n, th\u1EED l\u1EA1i sau";
     return status ? `l\u1ED7i HTTP ${status}` : "l\u1ED7i t\u1EA3i";
   }
   var LOADING_ID = "__loading__";
@@ -1073,6 +1093,31 @@ var _Sources = (() => {
     }
   };
 
+  // shared/cache.ts
+  var ShortCache = class {
+    constructor(ttlMs, maxEntries = 10) {
+      this.ttlMs = ttlMs;
+      this.maxEntries = maxEntries;
+      this.entries = /* @__PURE__ */ new Map();
+    }
+    get(key, load) {
+      const now = Date.now();
+      const hit = this.entries.get(key);
+      if (hit && hit.expires > now) return hit.value;
+      const value = load();
+      this.entries.set(key, { expires: now + this.ttlMs, value });
+      value.catch(() => {
+        if (this.entries.get(key)?.value === value) this.entries.delete(key);
+      });
+      while (this.entries.size > this.maxEntries) {
+        const oldest = this.entries.keys().next().value;
+        if (oldest === void 0) break;
+        this.entries.delete(oldest);
+      }
+      return value;
+    }
+  };
+
   // src/NetTruyen/NetTruyenParser.ts
   var PAGER_SELECTOR = ".pagination, .pagination-outter";
   function mangaIdFromHref(href) {
@@ -1103,6 +1148,10 @@ var _Sources = (() => {
     });
     return results;
   }
+  function stripBoilerplate(desc) {
+    const text = desc.replace(/Chào mừng các đạo hữu[\s\S]*?trên website của chúng tôi[.!]?\s*/gi, "").replace(/Bộ truyện này thuộc về các thể loại[^\n]*?(?:[.!](?=\s|$)|$)\s*/gi, "").trim();
+    return text.length > 0 ? text : desc;
+  }
   function parseMangaDetails($, mangaId, domain) {
     const $detail = $("#item-detail").length > 0 ? $("#item-detail") : $("body");
     const title = cleanText($detail.find("h1.title-detail, h1").first().text()) || mangaId;
@@ -1122,7 +1171,7 @@ var _Sources = (() => {
         image: imageFrom($detail.find(".col-image img, .detail-info img").first(), domain),
         author: author || "\u0110ang c\u1EADp nh\u1EADt",
         artist: author || "\u0110ang c\u1EADp nh\u1EADt",
-        desc: desc || "Kh\xF4ng c\xF3 m\xF4 t\u1EA3",
+        desc: stripBoilerplate(desc) || "Kh\xF4ng c\xF3 m\xF4 t\u1EA3",
         status: mapStatus(status),
         hentai: isAdultContent(tags),
         tags: genreSection(tags)
@@ -1194,7 +1243,7 @@ var _Sources = (() => {
   // src/NetTruyen/NetTruyen.ts
   var DEFAULT_DOMAIN = "https://nettruyen.gg";
   var NetTruyenInfo = {
-    version: "1.1.4",
+    version: "1.1.5",
     name: "NetTruyen",
     icon: "icon.png",
     author: "trungtoan46",
@@ -1234,6 +1283,7 @@ var _Sources = (() => {
       this.cheerio = cheerio;
       this.stateManager = App.createSourceStateManager();
       this.site = new DomainSetting(this.stateManager, DEFAULT_DOMAIN);
+      this.mangaPages = new ShortCache(60 * 1e3);
       this.requestManager = App.createRequestManager({
         requestsPerSecond: 4,
         requestTimeout: 2e4,
@@ -1251,6 +1301,7 @@ var _Sources = (() => {
           }
         }
       });
+      this.site.load().catch(() => void 0);
     }
     async getSourceMenu() {
       return this.site.menu();
@@ -1271,8 +1322,7 @@ var _Sources = (() => {
     }
     async getMangaDetails(mangaId) {
       if (isLoadingTile(mangaId)) throw new Error("Danh s\xE1ch \u0111ang t\u1EA3i, vui l\xF2ng ch\u1EDD m\u1ED9t ch\xFAt.");
-      const domain = await this.site.load();
-      const $ = await this.loadPage(`${domain}/truyen-tranh/${mangaId}`);
+      const { $, domain } = await this.loadMangaPage(mangaId);
       return parseMangaDetails($, mangaId, domain);
     }
     async getChapters(mangaId) {
@@ -1288,7 +1338,7 @@ var _Sources = (() => {
         apiError = error;
         console.log(`NetTruyen: API danh s\xE1ch ch\u01B0\u01A1ng l\u1ED7i, d\xF9ng danh s\xE1ch trong trang: ${error}`);
       }
-      const chapters = parseChapters(await this.loadPage(`${domain}/truyen-tranh/${mangaId}`));
+      const chapters = parseChapters((await this.loadMangaPage(mangaId)).$);
       if (chapters.length === 0 && apiError) {
         throw new Error("NetTruyen: kh\xF4ng \u0111\u1ECDc \u0111\u01B0\u1EE3c danh s\xE1ch ch\u01B0\u01A1ng (web c\xF3 th\u1EC3 \u0111\xE3 \u0111\u1ED5i giao di\u1EC7n)");
       }
@@ -1350,6 +1400,13 @@ var _Sources = (() => {
         nextUrl: nextUrl !== url ? nextUrl : void 0
       };
     }
+    /** Trang truyện dùng cho cả chi tiết lẫn danh sách chương dự phòng: nhớ tạm để không tải hai lần. */
+    async loadMangaPage(mangaId) {
+      const domain = await this.site.load();
+      const url = `${domain}/truyen-tranh/${mangaId}`;
+      const html = await this.mangaPages.get(url, async () => (await this.fetch(url)).data ?? "");
+      return { $: this.cheerio.load(html), domain };
+    }
     async loadPage(url) {
       const response = await this.fetch(url);
       return this.cheerio.load(response.data ?? "");
@@ -1357,12 +1414,7 @@ var _Sources = (() => {
     async fetch(url, headers = {}) {
       const request = App.createRequest({ url, method: "GET", headers });
       const response = await this.requestManager.schedule(request, 1);
-      if (response.status === 403 || response.status === 503) {
-        throw cloudflareError(response.status, "NetTruyen");
-      }
-      if (response.status >= 400) {
-        throw new Error(`NetTruyen tr\u1EA3 l\u1ED7i HTTP ${response.status} cho ${url}`);
-      }
+      checkResponse(response, "NetTruyen", url);
       return response;
     }
   };

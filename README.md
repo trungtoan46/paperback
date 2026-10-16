@@ -15,9 +15,9 @@
 
 | | Nguồn | Trang web | Phiên bản |
 |:---:|---|---|:---:|
-| <img src="src/TruyenQQ/includes/icon.png" width="32"> | **TruyenQQ** | truyenqqko.com | 1.3.5 |
-| <img src="src/NetTruyen/includes/icon.png" width="32"> | **NetTruyen** | nettruyen.gg | 1.1.4 |
-| <img src="src/GocTruyenTranhVui/includes/icon.png" width="32"> | **Góc Truyện Tranh Vui** | goctruyentranhvui31.com | 1.0.1 |
+| <img src="src/TruyenQQ/includes/icon.png" width="32"> | **TruyenQQ** | truyenqqko.com | 1.3.6 |
+| <img src="src/NetTruyen/includes/icon.png" width="32"> | **NetTruyen** | nettruyen.gg | 1.1.5 |
+| <img src="src/GocTruyenTranhVui/includes/icon.png" width="32"> | **Góc Truyện Tranh Vui** | goctruyentranhvui31.com | 1.0.2 |
 
 > [!NOTE]
 > Cần app **Paperback 0.8** (đã thử trên 0.8.11). Paperback chỉ có trên **iPhone/iPad**, không dùng được trên Android.
@@ -149,6 +149,7 @@ Khi có bản mới, vào **Settings → Extensions → repo** và bấm cập n
 | Hiện tượng | Cách xử lý |
 |---|---|
 | Mục trang chủ ghi **(cần Cloudflare Bypass)** hoặc hiện thông báo *Cloudflare chặn* | Làm **Cloudflare Bypass** (mục 3), rồi kéo xuống để tải lại. |
+| Mục trang chủ ghi **(web đang giới hạn, thử lại sau)** hoặc báo *HTTP 429* | Web chặn vì tải quá nhiều trong thời gian ngắn. Đợi vài phút rồi thử lại. |
 | Mục trang chủ ghi **(lỗi HTTP …)** hoặc **(không có truyện)** | Web có thể đã đổi địa chỉ hoặc giao diện. Thử **Đổi tên miền**; nếu vẫn lỗi, báo lỗi kèm ảnh chụp. |
 | Không mở được truyện nào, web đã đổi tên miền | **Đổi tên miền** sang địa chỉ mới (mục 3). |
 | Góc Truyện Tranh Vui báo *Không tải được ảnh chương* | Chương đó cần đăng nhập: đăng nhập qua **Cloudflare Bypass** (mục 3). |

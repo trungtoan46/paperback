@@ -18,16 +18,31 @@ export function segmentsAfter(href: string | undefined, prefix: string): string[
     return segments.length > 0 ? segments : undefined
 }
 
+/**
+ * Mã hoá dấu cách và ký tự ngoài ASCII, giữ nguyên %XX có sẵn: URL thô có dấu cách hoặc
+ * chữ tiếng Việt làm iOS (bản cũ) không mở được.
+ */
+export function encodeUnsafe(url: string): string {
+    return url.replace(/[^\x21-\x7E]/gu, char => {
+        try {
+            return encodeURIComponent(char)
+        } catch {
+            return ''
+        }
+    })
+}
+
 export function absoluteUrl(url: string | undefined, domain: string): string {
     const value = (url ?? '').trim()
     if (!value) return ''
-    if (value.startsWith('//')) return 'https:' + value
-    if (/^https?:\/\//i.test(value)) return value
-    return domain + (value.startsWith('/') ? value : '/' + value)
+    if (value.startsWith('//')) return encodeUnsafe('https:' + value)
+    if (/^https?:\/\//i.test(value)) return encodeUnsafe(value)
+    return encodeUnsafe(domain + (value.startsWith('/') ? value : '/' + value))
 }
 
-export function imageFrom($img: Cheerio<Element>, domain: string): string {
-    for (const attr of ['data-original', 'data-src', 'data-cdn', 'src']) {
+export function imageFrom($img: Cheerio<Element>, domain: string,
+    attrs: string[] = ['data-original', 'data-src', 'data-cdn', 'src']): string {
+    for (const attr of attrs) {
         const value = $img.attr(attr)?.trim()
         // Ảnh lazy-load thường để src là placeholder dạng data:
         if (value && !value.startsWith('data:')) return absoluteUrl(value, domain)
@@ -64,25 +79,44 @@ export function blockText($: CheerioAPI, $element: Cheerio<AnyNode>): string {
         .join('\n')
 }
 
+const VN_OFFSET_HOURS = 7
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/** Ngày giờ ghi trên web là giờ Việt Nam (UTC+7), không phụ thuộc múi giờ của máy. */
+function vietnamTime(year: number, month: number, day: number, hour = 0, minute = 0, second = 0): Date {
+    return new Date(Date.UTC(year, month - 1, day, hour - VN_OFFSET_HOURS, minute, second))
+}
+
 /** Đổi '5 phút trước', '2 giờ trước', '16/10/2026', '16/10/26', '12:30 16/10', '2026-10-16 08:30:00' sang Date. */
 export function parseTime(raw: string, now: number = Date.now()): Date {
     const text = raw.toLowerCase().trim()
     // new Date('2026-10-16 08:30:00') ra Invalid Date trên Safari/JavaScriptCore nên tự tách.
-    const iso = text.match(/(\d{4})-(\d{1,2})-(\d{1,2})(?:[ t](\d{1,2}):(\d{2})(?::(\d{2}))?)?/)
+    const iso = text.match(/(\d{4})-(\d{1,2})-(\d{1,2})(?:[ t](\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(z)?)?/)
     if (iso) {
-        const [, year, month, day, hour, minute, second] = iso
-        return new Date(parseInt(year!), parseInt(month!) - 1, parseInt(day!),
-            parseInt(hour ?? '0'), parseInt(minute ?? '0'), parseInt(second ?? '0'))
+        const [, year, month, day, hour, minute, second, utc] = iso
+        const parts = [parseInt(year!), parseInt(month!), parseInt(day!),
+            parseInt(hour ?? '0'), parseInt(minute ?? '0'), parseInt(second ?? '0')] as const
+        return utc
+            ? new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], parts[3], parts[4], parts[5]))
+            : vietnamTime(...parts)
     }
+    const clock = text.match(/(\d{1,2}):(\d{2})/)
+    const hour = clock ? parseInt(clock[1]!) : 0
+    const minute = clock ? parseInt(clock[2]!) : 0
     const full = text.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/)
     if (full) {
         let year = parseInt(full[3]!)
         if (year < 100) year += 2000
-        return new Date(year, parseInt(full[2]!) - 1, parseInt(full[1]!))
+        return vietnamTime(year, parseInt(full[2]!), parseInt(full[1]!), hour, minute)
     }
     const short = text.match(/(\d{1,2})\/(\d{1,2})/)
     if (short) {
-        return new Date(new Date(now).getFullYear(), parseInt(short[2]!) - 1, parseInt(short[1]!))
+        // Không ghi năm: lấy năm hiện tại; ra ngày ở tương lai thì là năm trước ('30/12' đọc vào ngày 2/1).
+        const year = new Date(now + VN_OFFSET_HOURS * 60 * 60 * 1000).getUTCFullYear()
+        const date = vietnamTime(year, parseInt(short[2]!), parseInt(short[1]!), hour, minute)
+        return date.getTime() > now + DAY_MS
+            ? vietnamTime(year - 1, parseInt(short[2]!), parseInt(short[1]!), hour, minute)
+            : date
     }
     const amount = parseInt(text.match(/(\d+)/)?.[1] ?? '1')
     const units: [string, number][] = [
@@ -131,7 +165,7 @@ export function parseNextPageUrl($: CheerioAPI, pageUrl: string, pagerSelector: 
         const value = $a.attr('href')?.trim()
         if (!value || value === '#' || value.startsWith('javascript:')) return undefined
         // Link chỉ có query ('?page=2') tính theo trang hiện tại.
-        if (value.startsWith('?')) return pageUrl.split('?')[0] + value
+        if (value.startsWith('?')) return encodeUnsafe(pageUrl.split('?')[0] + value)
         return absoluteUrl(value, pageUrl.match(/^https?:\/\/[^/]+/i)?.[0] ?? '')
     }
 
@@ -182,8 +216,9 @@ export function genreSection(tags: Tag[]): TagSection[] {
 const CLOUDFLARE_ERROR = 'CloudflareError'
 
 export function cloudflareError(status: number, sourceName: string): Error {
-    const error = new Error(`Cloudflare chặn (HTTP ${status}). Vào cài đặt nguồn ${sourceName} và bấm "Cloudflare Bypass", sau đó thử lại.`)
+    const error = new Error(`Cloudflare chặn (HTTP ${status}). Vào cài đặt nguồn ${sourceName} và bấm "Cloudflare Bypass", sau đó thử lại.`) as Error & { status: number }
     error.name = CLOUDFLARE_ERROR
+    error.status = status
     return error
 }
 
@@ -206,11 +241,23 @@ export function isCloudflareBlock(response: Response): boolean {
     return /just a moment|cf-chl|challenge-platform|cf_chl_opt|attention required/i.test((response.data ?? '').slice(0, 20000))
 }
 
+function httpError(message: string, status: number): Error {
+    const error = new Error(message) as Error & { status: number }
+    error.status = status
+    return error
+}
+
+/** Mã HTTP của lỗi do checkResponse/cloudflareError ném ra; undefined với lỗi khác (hết giờ, đọc dữ liệu...). */
+export function errorStatus(error: unknown): number | undefined {
+    const status = (error as { status?: unknown } | undefined)?.status
+    return typeof status === 'number' ? status : undefined
+}
+
 /** Ném lỗi dễ hiểu cho response lỗi: Cloudflare, giới hạn tốc độ (429) hoặc mã HTTP. */
 export function checkResponse(response: Response, sourceName: string, url: string): void {
     if (isCloudflareBlock(response)) throw cloudflareError(response.status, sourceName)
     if (response.status === 429) {
-        throw new Error(`${sourceName} đang giới hạn số lần truy cập (HTTP 429). Đợi ít phút rồi thử lại.`)
+        throw httpError(`${sourceName} đang giới hạn số lần truy cập (HTTP 429). Đợi ít phút rồi thử lại.`, 429)
     }
-    if (response.status >= 400) throw new Error(`${sourceName} trả lỗi HTTP ${response.status} cho ${url}`)
+    if (response.status >= 400) throw httpError(`${sourceName} trả lỗi HTTP ${response.status} cho ${url}`, response.status)
 }

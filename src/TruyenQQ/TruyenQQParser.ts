@@ -103,14 +103,18 @@ export function parseNextPageByNumber($: CheerioAPI, pageUrl: string, domain: st
 }
 
 export function parseMangaDetails($: CheerioAPI, mangaId: string, domain: string): SourceManga {
-    const title = cleanText($('h1[itemprop=name], .book_other h1, .book_info h1, h1').first().text()) || mangaId
+    // Trang bảo trì / chống bot cũng trả 200: báo lỗi thay vì ghi đè tên truyện bằng mã truyện.
+    const title = cleanText($('h1[itemprop=name], .book_other h1, .book_info h1').first().text())
+    if (!title || $('.list-info, .book_info, .book_other').length === 0) {
+        throw new Error('TruyenQQ: không đọc được trang truyện (web có thể đang bảo trì hoặc đã đổi giao diện)')
+    }
     const otherNames = cleanText($('li.othername h2, .other-name').first().text())
         .split(/[;,]/)
         .map(name => name.trim())
         .filter(name => name.length > 0 && name !== title)
 
     const author = cleanText($('li.author p.col-xs-9, li.author .org, .list-info .org, .list_info .org').first().text())
-    const status = cleanText($('li.status p.col-xs-9, li.status .col-xs-9').first().text())
+    const status = cleanText($('li.status p:last-child, li.status .col-xs-9').first().text())
     const desc = blockText($, $('.story-detail-info, .detail-content, .story_introduction').first())
     const tags = parseTagLinks($, 'ul.list01 li a, .list01 a', '/the-loai/')
 
@@ -158,7 +162,9 @@ export function parseChapters($: CheerioAPI): Chapter[] {
 
 export function parseChapterDetails($: CheerioAPI, mangaId: string, chapterId: string, domain: string): ChapterDetails {
     const pages: string[] = []
-    $('.page-chapter img, #chapter_content img, .chapter_content img').each((_, element) => {
+    // Chỉ lấy ảnh trong từng trang (.page-chapter); cả khung chương có thể chứa ảnh quảng cáo.
+    const $images = $('.page-chapter img').length > 0 ? $('.page-chapter img') : $('#chapter_content img, .chapter_content img')
+    $images.each((_, element) => {
         const $img = $(element)
         // Ảnh thật nằm ở src; data-* chỉ dùng khi src là ảnh chờ. Bỏ ảnh quảng cáo stress.gif.
         const src = $img.attr('src')?.trim()

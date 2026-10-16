@@ -46,7 +46,7 @@ import {
 const DEFAULT_DOMAIN = 'https://nettruyen.gg'
 
 export const NetTruyenInfo: SourceInfo = {
-    version: '1.1.6',
+    version: '1.1.7',
     name: 'NetTruyen',
     icon: 'icon.png',
     author: 'trungtoan46',
@@ -149,6 +149,7 @@ export class NetTruyen implements SearchResultsProviding, MangaProviding, Chapte
     }
 
     async getChapters(mangaId: string): Promise<Chapter[]> {
+        if (isLoadingTile(mangaId)) throw new Error('Danh sách đang tải, vui lòng chờ một chút.')
         const domain = await this.site.load()
         // Trang truyện chỉ có ~20 chương mới nhất (phần còn lại web tải bằng AJAX), nên lấy đủ qua API trước.
         const url = `${domain}/Comic/Services/ComicService.asmx/ChapterList?slug=${encodeURIComponent(mangaId)}`
@@ -164,8 +165,11 @@ export class NetTruyen implements SearchResultsProviding, MangaProviding, Chapte
         }
 
         const chapters = parseChapters((await this.loadMangaPage(mangaId)).$)
-        if (chapters.length === 0 && apiError) {
-            throw new Error('NetTruyen: không đọc được danh sách chương (web có thể đã đổi giao diện)')
+        // Trả danh sách rỗng khi cập nhật thư viện có thể làm app xoá chương đã đọc: báo lỗi thay vào đó.
+        if (chapters.length === 0) {
+            throw new Error(apiError
+                ? 'NetTruyen: không đọc được danh sách chương (web có thể đã đổi giao diện)'
+                : 'NetTruyen: không tìm thấy chương nào (web có thể đang bảo trì)')
         }
         return chapters
     }
@@ -173,7 +177,9 @@ export class NetTruyen implements SearchResultsProviding, MangaProviding, Chapte
     async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
         const domain = await this.site.load()
         const $ = await this.loadPage(domain + toPath(chapterId))
-        return parseChapterDetails($, mangaId, chapterId, domain)
+        const details = parseChapterDetails($, mangaId, chapterId, domain)
+        if (details.pages.length === 0) throw new Error('NetTruyen: không tìm thấy ảnh trong chương này')
+        return details
     }
 
     async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {

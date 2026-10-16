@@ -743,15 +743,24 @@ var _Sources = (() => {
     const segments = path.slice(index + prefix.length).split("/").filter((segment) => segment.length > 0);
     return segments.length > 0 ? segments : void 0;
   }
+  function encodeUnsafe(url) {
+    return url.replace(/[^\x21-\x7E]/gu, (char) => {
+      try {
+        return encodeURIComponent(char);
+      } catch {
+        return "";
+      }
+    });
+  }
   function absoluteUrl(url, domain) {
     const value = (url ?? "").trim();
     if (!value) return "";
-    if (value.startsWith("//")) return "https:" + value;
-    if (/^https?:\/\//i.test(value)) return value;
-    return domain + (value.startsWith("/") ? value : "/" + value);
+    if (value.startsWith("//")) return encodeUnsafe("https:" + value);
+    if (/^https?:\/\//i.test(value)) return encodeUnsafe(value);
+    return encodeUnsafe(domain + (value.startsWith("/") ? value : "/" + value));
   }
-  function imageFrom($img, domain) {
-    for (const attr of ["data-original", "data-src", "data-cdn", "src"]) {
+  function imageFrom($img, domain, attrs = ["data-original", "data-src", "data-cdn", "src"]) {
+    for (const attr of attrs) {
       const value = $img.attr(attr)?.trim();
       if (value && !value.startsWith("data:")) return absoluteUrl(value, domain);
     }
@@ -772,29 +781,40 @@ var _Sources = (() => {
     const blocks = $paragraphs.length > 0 ? $paragraphs.toArray().map((paragraph) => $(paragraph).text()) : [$copy.text()];
     return blocks.flatMap((block) => block.split(LINE_BREAK)).map((line) => cleanText(line)).filter((line) => line.length > 0).join("\n");
   }
+  var VN_OFFSET_HOURS = 7;
+  var DAY_MS = 24 * 60 * 60 * 1e3;
+  function vietnamTime(year, month, day, hour = 0, minute = 0, second = 0) {
+    return new Date(Date.UTC(year, month - 1, day, hour - VN_OFFSET_HOURS, minute, second));
+  }
   function parseTime(raw, now = Date.now()) {
     const text = raw.toLowerCase().trim();
-    const iso = text.match(/(\d{4})-(\d{1,2})-(\d{1,2})(?:[ t](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    const iso = text.match(/(\d{4})-(\d{1,2})-(\d{1,2})(?:[ t](\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(z)?)?/);
     if (iso) {
-      const [, year, month, day, hour, minute, second] = iso;
-      return new Date(
+      const [, year, month, day, hour2, minute2, second, utc] = iso;
+      const parts = [
         parseInt(year),
-        parseInt(month) - 1,
+        parseInt(month),
         parseInt(day),
-        parseInt(hour ?? "0"),
-        parseInt(minute ?? "0"),
+        parseInt(hour2 ?? "0"),
+        parseInt(minute2 ?? "0"),
         parseInt(second ?? "0")
-      );
+      ];
+      return utc ? new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], parts[3], parts[4], parts[5])) : vietnamTime(...parts);
     }
+    const clock = text.match(/(\d{1,2}):(\d{2})/);
+    const hour = clock ? parseInt(clock[1]) : 0;
+    const minute = clock ? parseInt(clock[2]) : 0;
     const full = text.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
     if (full) {
       let year = parseInt(full[3]);
       if (year < 100) year += 2e3;
-      return new Date(year, parseInt(full[2]) - 1, parseInt(full[1]));
+      return vietnamTime(year, parseInt(full[2]), parseInt(full[1]), hour, minute);
     }
     const short = text.match(/(\d{1,2})\/(\d{1,2})/);
     if (short) {
-      return new Date(new Date(now).getFullYear(), parseInt(short[2]) - 1, parseInt(short[1]));
+      const year = new Date(now + VN_OFFSET_HOURS * 60 * 60 * 1e3).getUTCFullYear();
+      const date = vietnamTime(year, parseInt(short[2]), parseInt(short[1]), hour, minute);
+      return date.getTime() > now + DAY_MS ? vietnamTime(year - 1, parseInt(short[2]), parseInt(short[1]), hour, minute) : date;
     }
     const amount = parseInt(text.match(/(\d+)/)?.[1] ?? "1");
     const units = [
@@ -831,7 +851,7 @@ var _Sources = (() => {
     const href = ($a) => {
       const value = $a.attr("href")?.trim();
       if (!value || value === "#" || value.startsWith("javascript:")) return void 0;
-      if (value.startsWith("?")) return pageUrl.split("?")[0] + value;
+      if (value.startsWith("?")) return encodeUnsafe(pageUrl.split("?")[0] + value);
       return absoluteUrl(value, pageUrl.match(/^https?:\/\/[^/]+/i)?.[0] ?? "");
     };
     const active = parseInt(cleanText($(within(".active")).first().text()));
@@ -872,6 +892,7 @@ var _Sources = (() => {
   function cloudflareError(status, sourceName) {
     const error = new Error(`Cloudflare ch\u1EB7n (HTTP ${status}). V\xE0o c\xE0i \u0111\u1EB7t ngu\u1ED3n ${sourceName} v\xE0 b\u1EA5m "Cloudflare Bypass", sau \u0111\xF3 th\u1EED l\u1EA1i.`);
     error.name = CLOUDFLARE_ERROR;
+    error.status = status;
     return error;
   }
   function isCloudflareError(error) {
@@ -889,12 +910,21 @@ var _Sources = (() => {
     if (header(response, "cf-mitigated") || header(response, "server").toLowerCase().includes("cloudflare")) return true;
     return /just a moment|cf-chl|challenge-platform|cf_chl_opt|attention required/i.test((response.data ?? "").slice(0, 2e4));
   }
+  function httpError(message, status) {
+    const error = new Error(message);
+    error.status = status;
+    return error;
+  }
+  function errorStatus(error) {
+    const status = error?.status;
+    return typeof status === "number" ? status : void 0;
+  }
   function checkResponse(response, sourceName, url) {
     if (isCloudflareBlock(response)) throw cloudflareError(response.status, sourceName);
     if (response.status === 429) {
-      throw new Error(`${sourceName} \u0111ang gi\u1EDBi h\u1EA1n s\u1ED1 l\u1EA7n truy c\u1EADp (HTTP 429). \u0110\u1EE3i \xEDt ph\xFAt r\u1ED3i th\u1EED l\u1EA1i.`);
+      throw httpError(`${sourceName} \u0111ang gi\u1EDBi h\u1EA1n s\u1ED1 l\u1EA7n truy c\u1EADp (HTTP 429). \u0110\u1EE3i \xEDt ph\xFAt r\u1ED3i th\u1EED l\u1EA1i.`, 429);
     }
-    if (response.status >= 400) throw new Error(`${sourceName} tr\u1EA3 l\u1ED7i HTTP ${response.status} cho ${url}`);
+    if (response.status >= 400) throw httpError(`${sourceName} tr\u1EA3 l\u1ED7i HTTP ${response.status} cho ${url}`, response.status);
   }
 
   // shared/filters.ts
@@ -929,7 +959,8 @@ var _Sources = (() => {
         loaded = true;
         if (page.results.length > 0) return page;
       } catch (error) {
-        if (isCloudflareError(error)) throw error;
+        const status = errorStatus(error);
+        if (status !== 404 && status !== 410) throw error;
         lastError = error;
       }
     }
@@ -938,7 +969,7 @@ var _Sources = (() => {
   }
   function describeError(error) {
     if (isCloudflareError(error)) return "c\u1EA7n Cloudflare Bypass";
-    const status = error instanceof Error ? error.message.match(/HTTP (\d{3})/)?.[1] : void 0;
+    const status = errorStatus(error)?.toString() ?? (error instanceof Error ? error.message.match(/HTTP (\d{3})/)?.[1] : void 0);
     if (status === "429") return "web \u0111ang gi\u1EDBi h\u1EA1n, th\u1EED l\u1EA1i sau";
     return status ? `l\u1ED7i HTTP ${status}` : "l\u1ED7i t\u1EA3i";
   }
@@ -959,15 +990,18 @@ var _Sources = (() => {
         mangaId: item.mangaId,
         title: item.title,
         image: typeof item.image === "string" ? item.image : "",
-        subtitle: item.subtitle
+        subtitle: typeof item.subtitle === "string" ? item.subtitle : void 0
       }));
     } catch {
       return [];
     }
   }
   async function writeCache(stateManager, sectionId, items) {
-    const plain = items.map((item) => ({ mangaId: item.mangaId, title: item.title, image: item.image, subtitle: item.subtitle }));
-    await stateManager.store(cacheKey(sectionId), plain).catch(() => void 0);
+    try {
+      const plain = items.map((item) => ({ mangaId: item.mangaId, title: item.title, image: item.image, subtitle: item.subtitle }));
+      await stateManager.store(cacheKey(sectionId), plain);
+    } catch {
+    }
   }
   async function loadHomeSections(infos, domain, sectionCallback, loadFirstList, sourceName, stateManager) {
     const cached = await Promise.all(infos.map((info) => readCache(stateManager, info.id)));
@@ -986,11 +1020,7 @@ var _Sources = (() => {
       let page = { results: [] };
       try {
         page = await loadFirstList(info.paths.map((path) => domain + path));
-        if (page.results.length > 0) {
-          await writeCache(stateManager, info.id, page.results);
-        } else {
-          title = `${info.title} (kh\xF4ng c\xF3 truy\u1EC7n)`;
-        }
+        if (page.results.length === 0) title = `${info.title} (kh\xF4ng c\xF3 truy\u1EC7n)`;
       } catch (error) {
         console.log(`${sourceName}: l\u1ED7i t\u1EA3i m\u1EE5c ${info.id}: ${error}`);
         title = `${info.title} (${describeError(error)})`;
@@ -1003,6 +1033,7 @@ var _Sources = (() => {
         items: fresh ? page.results : cached[index],
         containsMoreItems: fresh && page.nextUrl !== void 0
       }));
+      if (fresh) await writeCache(stateManager, info.id, page.results);
     }));
   }
 
@@ -1036,7 +1067,7 @@ var _Sources = (() => {
       const empty = typeof value !== "string" || value.trim() === "";
       const domain = empty ? void 0 : normalizeDomain(value);
       if (!empty && domain === void 0) return;
-      await this.stateManager.store(DOMAIN_KEY, domain ?? null);
+      await this.stateManager.store(DOMAIN_KEY, domain ?? "");
       this.cached = domain ?? this.defaultDomain;
     }
     menu() {
@@ -1169,10 +1200,13 @@ var _Sources = (() => {
     return next.length > 0 ? absoluteUrl(next.attr("href"), domain) : void 0;
   }
   function parseMangaDetails($, mangaId, domain) {
-    const title = cleanText($("h1[itemprop=name], .book_other h1, .book_info h1, h1").first().text()) || mangaId;
+    const title = cleanText($("h1[itemprop=name], .book_other h1, .book_info h1").first().text());
+    if (!title || $(".list-info, .book_info, .book_other").length === 0) {
+      throw new Error("TruyenQQ: kh\xF4ng \u0111\u1ECDc \u0111\u01B0\u1EE3c trang truy\u1EC7n (web c\xF3 th\u1EC3 \u0111ang b\u1EA3o tr\xEC ho\u1EB7c \u0111\xE3 \u0111\u1ED5i giao di\u1EC7n)");
+    }
     const otherNames = cleanText($("li.othername h2, .other-name").first().text()).split(/[;,]/).map((name) => name.trim()).filter((name) => name.length > 0 && name !== title);
     const author = cleanText($("li.author p.col-xs-9, li.author .org, .list-info .org, .list_info .org").first().text());
-    const status = cleanText($("li.status p.col-xs-9, li.status .col-xs-9").first().text());
+    const status = cleanText($("li.status p:last-child, li.status .col-xs-9").first().text());
     const desc = blockText($, $(".story-detail-info, .detail-content, .story_introduction").first());
     const tags = parseTagLinks($, "ul.list01 li a, .list01 a", "/the-loai/");
     return App.createSourceManga({
@@ -1215,7 +1249,8 @@ var _Sources = (() => {
   }
   function parseChapterDetails($, mangaId, chapterId, domain) {
     const pages = [];
-    $(".page-chapter img, #chapter_content img, .chapter_content img").each((_, element) => {
+    const $images = $(".page-chapter img").length > 0 ? $(".page-chapter img") : $("#chapter_content img, .chapter_content img");
+    $images.each((_, element) => {
       const $img = $(element);
       const src = $img.attr("src")?.trim();
       const url = src && !src.startsWith("data:") ? absoluteUrl(src, domain) : imageFrom($img, domain);
@@ -1227,7 +1262,7 @@ var _Sources = (() => {
   // src/TruyenQQ/TruyenQQ.ts
   var DEFAULT_DOMAIN = "https://truyenqqko.com";
   var TruyenQQInfo = {
-    version: "1.3.7",
+    version: "1.3.8",
     name: "TruyenQQ",
     icon: "icon.png",
     author: "trungtoan46",
@@ -1243,7 +1278,7 @@ var _Sources = (() => {
     intents: import_types.SourceIntents.MANGA_CHAPTERS | import_types.SourceIntents.HOMEPAGE_SECTIONS | import_types.SourceIntents.CLOUDFLARE_BYPASS_REQUIRED | import_types.SourceIntents.SETTINGS_UI
   };
   var LATEST_PATHS = ["/truyen-moi-cap-nhat", "/truyen-moi-cap-nhat/trang-1", "/truyen-moi-cap-nhat/trang-1.html", "/"];
-  var ADVANCED_SEARCH_PATHS = ["/tim-kiem-nang-cao", "/tim-kiem-nang-cao.html"];
+  var ADVANCED_SEARCH_PATHS = ["/tim-kiem-nang-cao"];
   var HOME_SECTIONS = [
     { id: "latest", title: "M\u1EDBi c\u1EADp nh\u1EADt", paths: LATEST_PATHS, type: import_types.HomeSectionType.singleRowNormal },
     { id: "favorite", title: "Y\xEAu th\xEDch", paths: ["/truyen-yeu-thich", "/truyen-yeu-thich/trang-1", "/truyen-yeu-thich/trang-1.html"], type: import_types.HomeSectionType.singleRowNormal }
@@ -1312,7 +1347,10 @@ var _Sources = (() => {
       return parseMangaDetails($, mangaId, domain);
     }
     async getChapters(mangaId) {
-      return parseChapters((await this.loadMangaPage(mangaId)).$);
+      if (isLoadingTile(mangaId)) throw new Error("Danh s\xE1ch \u0111ang t\u1EA3i, vui l\xF2ng ch\u1EDD m\u1ED9t ch\xFAt.");
+      const chapters = parseChapters((await this.loadMangaPage(mangaId)).$);
+      if (chapters.length === 0) throw new Error("TruyenQQ: kh\xF4ng t\xECm th\u1EA5y ch\u01B0\u01A1ng n\xE0o (web c\xF3 th\u1EC3 \u0111ang b\u1EA3o tr\xEC ho\u1EB7c \u0111\xE3 \u0111\u1ED5i giao di\u1EC7n)");
+      return chapters;
     }
     /** Trang truyện dùng cho cả chi tiết lẫn danh sách chương: nhớ tạm để không tải hai lần. */
     async loadMangaPage(mangaId) {
@@ -1323,8 +1361,10 @@ var _Sources = (() => {
     }
     async getChapterDetails(mangaId, chapterId) {
       const domain = await this.site.load();
-      const $ = await this.loadPage(domain + toPath(chapterId));
-      return parseChapterDetails($, mangaId, chapterId, domain);
+      const $ = await this.loadPage(domain + toPath(chapterId).replace(/\.html$/i, ""));
+      const details = parseChapterDetails($, mangaId, chapterId, domain);
+      if (details.pages.length === 0) throw new Error("TruyenQQ: kh\xF4ng t\xECm th\u1EA5y \u1EA3nh trong ch\u01B0\u01A1ng n\xE0y");
+      return details;
     }
     async getHomePageSections(sectionCallback) {
       await loadHomeSections(HOME_SECTIONS, await this.site.load(), sectionCallback, (urls) => this.loadFirstList(urls), "TruyenQQ", this.stateManager);
@@ -1358,7 +1398,7 @@ var _Sources = (() => {
       const title = query.title?.trim();
       if (title) {
         const q = encodeURIComponent(title);
-        return toPagedResults(await this.loadFirstList([`${domain}/tim-kiem?q=${q}`, `${domain}/tim-kiem.html?q=${q}`]));
+        return toPagedResults(await this.loadFirstList([`${domain}/tim-kiem?q=${q}`]));
       }
       const included = genreTags(query.includedTags);
       const excluded = genreTags(query.excludedTags);

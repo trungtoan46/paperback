@@ -104,7 +104,9 @@ export function parseComicId($: CheerioAPI): string | undefined {
 }
 
 export function parseMangaDetails($: CheerioAPI, mangaId: string, domain: string): SourceManga {
-    const title = cleanText($('.v-card-title').first().text()) || splitMangaId(mangaId).slug
+    // Trang bảo trì / chống bot cũng trả 200: báo lỗi thay vì ghi đè tên truyện bằng mã truyện.
+    const title = cleanText($('.v-card-title').first().text())
+    if (!title) throw new Error('Góc Truyện Tranh Vui: không đọc được trang truyện (web có thể đang bảo trì hoặc đã đổi giao diện)')
     const author = labeledValue($, 'Tác giả')
     const status = labeledValue($, 'Trạng thái')
     // Id thể loại ở trang truyện là tên; tìm kiếm đổi tên sang mã thể loại của API.
@@ -134,22 +136,36 @@ export function parseMangaDetails($: CheerioAPI, mangaId: string, domain: string
     })
 }
 
-/** Chương từ /api/comic/<id>/chapter; id chương là số chương ('17', '16.5'). */
+/**
+ * Chương từ /api/comic/<id>/chapter; id chương là số chương ('17', '16.5'). Bỏ chương trùng số.
+ * Sắp mới nhất trước theo số chương; nếu có chương không phải số (ví dụ ngoại truyện) thì giữ thứ tự
+ * của API (đảo lại nếu API trả cũ nhất trước) để chương đó không bị đẩy xuống cuối.
+ */
 export function parseChapters(json: string): Chapter[] {
     const result = apiResult<{ chapters?: ApiChapter[] }>(json, 'Phiên làm việc đã hết hạn, vui lòng tải lại.')
-    const items = (result.chapters ?? [])
-        .filter(chapter => chapter.numberChapter !== undefined && String(chapter.numberChapter).trim() !== '')
-        .map(chapter => {
-            const id = String(chapter.numberChapter).trim()
-            const chapNum = parseFloat(id)
-            return { id, chapNum: isNaN(chapNum) ? 0 : chapNum, time: chapter.updateTime }
-        })
-        // Không chắc API trả theo thứ tự nào: sắp mới nhất trước.
-        .sort((a, b) => b.chapNum - a.chapNum)
+    const seen = new Set<string>()
+    const items: { id: string, chapNum: number, numeric: boolean, time?: number }[] = []
+    for (const chapter of result.chapters ?? []) {
+        const id = chapter.numberChapter === undefined ? '' : String(chapter.numberChapter).trim()
+        if (!id || seen.has(id)) continue
+        seen.add(id)
+        const numeric = /^\d+(?:\.\d+)?$/.test(id)
+        items.push({ id, chapNum: numeric ? parseFloat(id) : 0, numeric, time: chapter.updateTime })
+    }
 
-    return items.map((item, index) => App.createChapter({
+    let ordered = items
+    if (items.every(item => item.numeric)) {
+        ordered = [...items].sort((a, b) => b.chapNum - a.chapNum)
+    } else {
+        const numbers = items.filter(item => item.numeric)
+        const ascending = numbers.length >= 2 && numbers[0]!.chapNum < numbers[numbers.length - 1]!.chapNum
+        if (ascending) ordered = [...items].reverse()
+    }
+
+    return ordered.map((item, index) => App.createChapter({
         id: item.id,
         chapNum: item.chapNum,
+        name: item.numeric ? undefined : item.id,
         langCode: 'vi',
         time: typeof item.time === 'number' && item.time > 0 ? new Date(item.time) : new Date(),
         sortingIndex: -index

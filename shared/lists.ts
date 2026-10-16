@@ -1,5 +1,5 @@
 import { HomeSection, HomeSectionType, PagedResults, PartialSourceManga, SourceStateManager } from '@paperback/types'
-import { isCloudflareError } from './utils'
+import { errorStatus, isCloudflareError } from './utils'
 
 export interface ListPage {
     results: PartialSourceManga[]
@@ -23,7 +23,8 @@ export function toPagedResults(page: ListPage): PagedResults {
 
 /**
  * Thử lần lượt từng URL, trả về trang đầu tiên có truyện.
- * Lỗi Cloudflare báo ngay; mọi URL đều lỗi thì ném lỗi cuối; không lỗi mà không có truyện thì trả danh sách rỗng.
+ * Chỉ chuyển sang URL kế tiếp khi URL này không còn (404/410) hoặc không có truyện; lỗi khác
+ * (Cloudflare, giới hạn tốc độ, lỗi máy chủ, hết giờ) báo ngay để khỏi gọi thêm khi web đang chặn.
  */
 export async function firstListWithItems(urls: string[], loadList: (url: string) => Promise<ListPage>): Promise<ListPage> {
     let lastError: unknown
@@ -34,7 +35,8 @@ export async function firstListWithItems(urls: string[], loadList: (url: string)
             loaded = true
             if (page.results.length > 0) return page
         } catch (error) {
-            if (isCloudflareError(error)) throw error
+            const status = errorStatus(error)
+            if (status !== 404 && status !== 410) throw error
             lastError = error
         }
     }
@@ -45,7 +47,7 @@ export async function firstListWithItems(urls: string[], loadList: (url: string)
 /** Mô tả ngắn để hiện cạnh tên mục trang chủ khi mục đó không có truyện. */
 export function describeError(error: unknown): string {
     if (isCloudflareError(error)) return 'cần Cloudflare Bypass'
-    const status = error instanceof Error ? error.message.match(/HTTP (\d{3})/)?.[1] : undefined
+    const status = errorStatus(error)?.toString() ?? (error instanceof Error ? error.message.match(/HTTP (\d{3})/)?.[1] : undefined)
     if (status === '429') return 'web đang giới hạn, thử lại sau'
     return status ? `lỗi HTTP ${status}` : 'lỗi tải'
 }
@@ -81,16 +83,21 @@ async function readCache(stateManager: SourceStateManager, sectionId: string): P
                 mangaId: item.mangaId,
                 title: item.title,
                 image: typeof item.image === 'string' ? item.image : '',
-                subtitle: item.subtitle
+                subtitle: typeof item.subtitle === 'string' ? item.subtitle : undefined
             }))
     } catch {
         return []
     }
 }
 
+/** Lưu danh sách cho lần mở sau; lỗi khi lưu chỉ bỏ qua (không ảnh hưởng mục vừa tải xong). */
 async function writeCache(stateManager: SourceStateManager, sectionId: string, items: PartialSourceManga[]): Promise<void> {
-    const plain: CachedManga[] = items.map(item => ({ mangaId: item.mangaId, title: item.title, image: item.image, subtitle: item.subtitle }))
-    await stateManager.store(cacheKey(sectionId), plain).catch(() => undefined)
+    try {
+        const plain: CachedManga[] = items.map(item => ({ mangaId: item.mangaId, title: item.title, image: item.image, subtitle: item.subtitle }))
+        await stateManager.store(cacheKey(sectionId), plain)
+    } catch {
+        // bỏ qua
+    }
 }
 
 /**
@@ -123,11 +130,7 @@ export async function loadHomeSections(
         let page: ListPage = { results: [] }
         try {
             page = await loadFirstList(info.paths.map(path => domain + path))
-            if (page.results.length > 0) {
-                await writeCache(stateManager, info.id, page.results)
-            } else {
-                title = `${info.title} (không có truyện)`
-            }
+            if (page.results.length === 0) title = `${info.title} (không có truyện)`
         } catch (error) {
             console.log(`${sourceName}: lỗi tải mục ${info.id}: ${error}`)
             title = `${info.title} (${describeError(error)})`
@@ -140,5 +143,6 @@ export async function loadHomeSections(
             items: fresh ? page.results : cached[index]!,
             containsMoreItems: fresh && page.nextUrl !== undefined
         }))
+        if (fresh) await writeCache(stateManager, info.id, page.results)
     }))
 }

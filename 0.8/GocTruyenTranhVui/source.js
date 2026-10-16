@@ -730,15 +730,24 @@ var _Sources = (() => {
   var import_types = __toESM(require_lib());
 
   // shared/utils.ts
+  function encodeUnsafe(url) {
+    return url.replace(/[^\x21-\x7E]/gu, (char) => {
+      try {
+        return encodeURIComponent(char);
+      } catch {
+        return "";
+      }
+    });
+  }
   function absoluteUrl(url, domain) {
     const value = (url ?? "").trim();
     if (!value) return "";
-    if (value.startsWith("//")) return "https:" + value;
-    if (/^https?:\/\//i.test(value)) return value;
-    return domain + (value.startsWith("/") ? value : "/" + value);
+    if (value.startsWith("//")) return encodeUnsafe("https:" + value);
+    if (/^https?:\/\//i.test(value)) return encodeUnsafe(value);
+    return encodeUnsafe(domain + (value.startsWith("/") ? value : "/" + value));
   }
-  function imageFrom($img, domain) {
-    for (const attr of ["data-original", "data-src", "data-cdn", "src"]) {
+  function imageFrom($img, domain, attrs = ["data-original", "data-src", "data-cdn", "src"]) {
+    for (const attr of attrs) {
       const value = $img.attr(attr)?.trim();
       if (value && !value.startsWith("data:")) return absoluteUrl(value, domain);
     }
@@ -747,6 +756,7 @@ var _Sources = (() => {
   function cleanText(text) {
     return text.replace(/\s+/g, " ").trim();
   }
+  var DAY_MS = 24 * 60 * 60 * 1e3;
   function mapStatus(raw) {
     const text = raw.toLowerCase();
     if (text.includes("ho\xE0n th\xE0nh") || text.includes("full") || text.includes("completed")) return "Completed";
@@ -763,6 +773,7 @@ var _Sources = (() => {
   function cloudflareError(status, sourceName) {
     const error = new Error(`Cloudflare ch\u1EB7n (HTTP ${status}). V\xE0o c\xE0i \u0111\u1EB7t ngu\u1ED3n ${sourceName} v\xE0 b\u1EA5m "Cloudflare Bypass", sau \u0111\xF3 th\u1EED l\u1EA1i.`);
     error.name = CLOUDFLARE_ERROR;
+    error.status = status;
     return error;
   }
   function isCloudflareError(error) {
@@ -780,12 +791,21 @@ var _Sources = (() => {
     if (header(response, "cf-mitigated") || header(response, "server").toLowerCase().includes("cloudflare")) return true;
     return /just a moment|cf-chl|challenge-platform|cf_chl_opt|attention required/i.test((response.data ?? "").slice(0, 2e4));
   }
+  function httpError(message, status) {
+    const error = new Error(message);
+    error.status = status;
+    return error;
+  }
+  function errorStatus(error) {
+    const status = error?.status;
+    return typeof status === "number" ? status : void 0;
+  }
   function checkResponse(response, sourceName, url) {
     if (isCloudflareBlock(response)) throw cloudflareError(response.status, sourceName);
     if (response.status === 429) {
-      throw new Error(`${sourceName} \u0111ang gi\u1EDBi h\u1EA1n s\u1ED1 l\u1EA7n truy c\u1EADp (HTTP 429). \u0110\u1EE3i \xEDt ph\xFAt r\u1ED3i th\u1EED l\u1EA1i.`);
+      throw httpError(`${sourceName} \u0111ang gi\u1EDBi h\u1EA1n s\u1ED1 l\u1EA7n truy c\u1EADp (HTTP 429). \u0110\u1EE3i \xEDt ph\xFAt r\u1ED3i th\u1EED l\u1EA1i.`, 429);
     }
-    if (response.status >= 400) throw new Error(`${sourceName} tr\u1EA3 l\u1ED7i HTTP ${response.status} cho ${url}`);
+    if (response.status >= 400) throw httpError(`${sourceName} tr\u1EA3 l\u1ED7i HTTP ${response.status} cho ${url}`, response.status);
   }
 
   // shared/filters.ts
@@ -817,7 +837,8 @@ var _Sources = (() => {
         loaded = true;
         if (page.results.length > 0) return page;
       } catch (error) {
-        if (isCloudflareError(error)) throw error;
+        const status = errorStatus(error);
+        if (status !== 404 && status !== 410) throw error;
         lastError = error;
       }
     }
@@ -826,7 +847,7 @@ var _Sources = (() => {
   }
   function describeError(error) {
     if (isCloudflareError(error)) return "c\u1EA7n Cloudflare Bypass";
-    const status = error instanceof Error ? error.message.match(/HTTP (\d{3})/)?.[1] : void 0;
+    const status = errorStatus(error)?.toString() ?? (error instanceof Error ? error.message.match(/HTTP (\d{3})/)?.[1] : void 0);
     if (status === "429") return "web \u0111ang gi\u1EDBi h\u1EA1n, th\u1EED l\u1EA1i sau";
     return status ? `l\u1ED7i HTTP ${status}` : "l\u1ED7i t\u1EA3i";
   }
@@ -847,15 +868,18 @@ var _Sources = (() => {
         mangaId: item.mangaId,
         title: item.title,
         image: typeof item.image === "string" ? item.image : "",
-        subtitle: item.subtitle
+        subtitle: typeof item.subtitle === "string" ? item.subtitle : void 0
       }));
     } catch {
       return [];
     }
   }
   async function writeCache(stateManager, sectionId, items) {
-    const plain = items.map((item) => ({ mangaId: item.mangaId, title: item.title, image: item.image, subtitle: item.subtitle }));
-    await stateManager.store(cacheKey(sectionId), plain).catch(() => void 0);
+    try {
+      const plain = items.map((item) => ({ mangaId: item.mangaId, title: item.title, image: item.image, subtitle: item.subtitle }));
+      await stateManager.store(cacheKey(sectionId), plain);
+    } catch {
+    }
   }
   async function loadHomeSections(infos, domain, sectionCallback, loadFirstList, sourceName, stateManager) {
     const cached = await Promise.all(infos.map((info) => readCache(stateManager, info.id)));
@@ -874,11 +898,7 @@ var _Sources = (() => {
       let page = { results: [] };
       try {
         page = await loadFirstList(info.paths.map((path) => domain + path));
-        if (page.results.length > 0) {
-          await writeCache(stateManager, info.id, page.results);
-        } else {
-          title = `${info.title} (kh\xF4ng c\xF3 truy\u1EC7n)`;
-        }
+        if (page.results.length === 0) title = `${info.title} (kh\xF4ng c\xF3 truy\u1EC7n)`;
       } catch (error) {
         console.log(`${sourceName}: l\u1ED7i t\u1EA3i m\u1EE5c ${info.id}: ${error}`);
         title = `${info.title} (${describeError(error)})`;
@@ -891,6 +911,7 @@ var _Sources = (() => {
         items: fresh ? page.results : cached[index],
         containsMoreItems: fresh && page.nextUrl !== void 0
       }));
+      if (fresh) await writeCache(stateManager, info.id, page.results);
     }));
   }
 
@@ -924,7 +945,7 @@ var _Sources = (() => {
       const empty = typeof value !== "string" || value.trim() === "";
       const domain = empty ? void 0 : normalizeDomain(value);
       if (!empty && domain === void 0) return;
-      await this.stateManager.store(DOMAIN_KEY, domain ?? null);
+      await this.stateManager.store(DOMAIN_KEY, domain ?? "");
       this.cached = domain ?? this.defaultDomain;
     }
     menu() {
@@ -1048,7 +1069,8 @@ var _Sources = (() => {
     return $("#comic-id-comment").attr("value")?.trim() || void 0;
   }
   function parseMangaDetails($, mangaId, domain) {
-    const title = cleanText($(".v-card-title").first().text()) || splitMangaId(mangaId).slug;
+    const title = cleanText($(".v-card-title").first().text());
+    if (!title) throw new Error("G\xF3c Truy\u1EC7n Tranh Vui: kh\xF4ng \u0111\u1ECDc \u0111\u01B0\u1EE3c trang truy\u1EC7n (web c\xF3 th\u1EC3 \u0111ang b\u1EA3o tr\xEC ho\u1EB7c \u0111\xE3 \u0111\u1ED5i giao di\u1EC7n)");
     const author = labeledValue($, "T\xE1c gi\u1EA3");
     const status = labeledValue($, "Tr\u1EA1ng th\xE1i");
     const tags = [];
@@ -1074,14 +1096,27 @@ var _Sources = (() => {
   }
   function parseChapters(json) {
     const result = apiResult(json, "Phi\xEAn l\xE0m vi\u1EC7c \u0111\xE3 h\u1EBFt h\u1EA1n, vui l\xF2ng t\u1EA3i l\u1EA1i.");
-    const items = (result.chapters ?? []).filter((chapter) => chapter.numberChapter !== void 0 && String(chapter.numberChapter).trim() !== "").map((chapter) => {
-      const id = String(chapter.numberChapter).trim();
-      const chapNum = parseFloat(id);
-      return { id, chapNum: isNaN(chapNum) ? 0 : chapNum, time: chapter.updateTime };
-    }).sort((a, b) => b.chapNum - a.chapNum);
-    return items.map((item, index) => App.createChapter({
+    const seen = /* @__PURE__ */ new Set();
+    const items = [];
+    for (const chapter of result.chapters ?? []) {
+      const id = chapter.numberChapter === void 0 ? "" : String(chapter.numberChapter).trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const numeric = /^\d+(?:\.\d+)?$/.test(id);
+      items.push({ id, chapNum: numeric ? parseFloat(id) : 0, numeric, time: chapter.updateTime });
+    }
+    let ordered = items;
+    if (items.every((item) => item.numeric)) {
+      ordered = [...items].sort((a, b) => b.chapNum - a.chapNum);
+    } else {
+      const numbers = items.filter((item) => item.numeric);
+      const ascending = numbers.length >= 2 && numbers[0].chapNum < numbers[numbers.length - 1].chapNum;
+      if (ascending) ordered = [...items].reverse();
+    }
+    return ordered.map((item, index) => App.createChapter({
       id: item.id,
       chapNum: item.chapNum,
+      name: item.numeric ? void 0 : item.id,
       langCode: "vi",
       time: typeof item.time === "number" && item.time > 0 ? new Date(item.time) : /* @__PURE__ */ new Date(),
       sortingIndex: -index
@@ -1104,7 +1139,7 @@ var _Sources = (() => {
   var DEFAULT_DOMAIN = "https://goctruyentranhvui31.com";
   var SOURCE_NAME = "G\xF3c Truy\u1EC7n Tranh Vui";
   var GocTruyenTranhVuiInfo = {
-    version: "1.0.2",
+    version: "1.0.3",
     name: SOURCE_NAME,
     icon: "icon.png",
     author: "trungtoan46",
@@ -1186,10 +1221,26 @@ var _Sources = (() => {
       return parseMangaDetails($, mangaId, domain);
     }
     async getChapters(mangaId) {
+      if (isLoadingTile(mangaId)) throw new Error("Danh s\xE1ch \u0111ang t\u1EA3i, vui l\xF2ng ch\u1EDD m\u1ED9t ch\xFAt.");
       const domain = await this.site.load();
-      const { id } = await this.resolveIds(mangaId);
-      const response = await this.fetch(`${domain}/api/comic/${encodeURIComponent(id)}/chapter?limit=-1`, { headers: XHR });
-      return parseChapters(response.data ?? "");
+      const { id, slug } = await this.resolveIds(mangaId);
+      const url = `${domain}/api/comic/${encodeURIComponent(id)}/chapter?limit=-1`;
+      const load = async () => parseChapters((await this.fetch(url, { headers: XHR })).data ?? "");
+      let chapters;
+      try {
+        chapters = await load();
+      } catch (error) {
+        if (errorStatus(error) !== void 0) throw error;
+        await this.refreshSession(domain, slug);
+        chapters = await load();
+      }
+      if (chapters.length === 0) throw new Error(`${SOURCE_NAME}: ch\u01B0a c\xF3 ch\u01B0\u01A1ng n\xE0o ho\u1EB7c web \u0111ang l\u1ED7i`);
+      return chapters;
+    }
+    /** Mở lại trang truyện để web cấp cookie phiên mới. */
+    async refreshSession(domain, slug) {
+      const response = await this.fetch(`${domain}/truyen/${slug}`, { allowErrors: true });
+      if (isCloudflareBlock(response)) throw cloudflareError(response.status, SOURCE_NAME);
     }
     async getChapterDetails(mangaId, chapterId) {
       const domain = await this.site.load();
@@ -1206,11 +1257,12 @@ var _Sources = (() => {
           headers: { ...XHR, "content-type": "application/x-www-form-urlencoded" },
           allowErrors: true
         });
+        if (isCloudflareBlock(response)) throw cloudflareError(response.status, SOURCE_NAME);
         return response.status < 400 ? parseImageList(response.data ?? "", domain) : void 0;
       };
       let pages = await loadImages();
       if (!pages) {
-        await this.fetch(`${domain}/truyen/${slug}`, { allowErrors: true });
+        await this.refreshSession(domain, slug);
         pages = await loadImages();
       }
       if (!pages) {
@@ -1252,10 +1304,9 @@ var _Sources = (() => {
       const categoryIds = tags.filter((tag) => tag.id.startsWith("cat:")).map((tag) => tag.id.slice(4));
       const names = tags.filter((tag) => tag.id.startsWith("name:")).map((tag) => tag.label.toLowerCase());
       if (names.length > 0) {
-        const categories = await this.getCategories().catch(() => []);
-        for (const category of categories) {
-          if (names.includes(category.name.toLowerCase())) categoryIds.push(String(category.id));
-        }
+        const matched = (await this.getCategories()).filter((category) => names.includes(category.name.toLowerCase()));
+        if (matched.length === 0) throw new Error(`${SOURCE_NAME}: kh\xF4ng t\xECm th\u1EA5y th\u1EC3 lo\u1EA1i n\xE0y tr\xEAn web`);
+        categoryIds.push(...matched.map((category) => String(category.id)));
       }
       for (const id of new Set(categoryIds)) params.push(`categories%5B%5D=${encodeURIComponent(id)}`);
       for (const tag of tags.filter((item) => item.id.startsWith("status:"))) {

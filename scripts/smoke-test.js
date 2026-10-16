@@ -108,9 +108,10 @@ async function testTruyenQQ() {
         [`${D}/the-loai/action-26`]: f('generic-list.html'),
         [`${D}/truyen-tranh/dao-hai-tac-128`]: f('manga.html'),
         [`${D}/truyen-tranh/dao-hai-tac-128-chap-1100`]: f('chapter.html'),
-        [`${D}/truyen-tranh/dao-hai-tac-128-chap-1100.html`]: f('chapter.html'),
-        // '/tim-kiem-nang-cao?...' không có (404) -> dùng URL dự phòng có '.html'
-        [`${D}/tim-kiem-nang-cao.html?category=26&notcategory=36&country=0&status=2&minchapter=0&sort=4`]: f('last-page.html'),
+        [`${D}/tim-kiem-nang-cao?category=26&notcategory=36&country=0&status=2&minchapter=0&sort=4`]: f('last-page.html'),
+        // Trang bảo trì trả 200 nhưng không phải trang truyện / chương
+        [`${D}/truyen-tranh/bao-tri-1`]: '<html><body><h1>Đang bảo trì</h1></body></html>',
+        [`${D}/truyen-tranh/bao-tri-1-chap-1`]: '<html><body><h1>Đang bảo trì</h1></body></html>',
         ['https://qq.example/truyen-tranh/dao-hai-tac-128']: f('manga.html')
     })
 
@@ -199,8 +200,17 @@ async function testTruyenQQ() {
     const expectedPages = ['https://i.cdn.test/p/1.jpg', 'https://i.cdn.test/p/2.jpg', 'https://cdn2.test/p/3.jpg']
     const details = await source.getChapterDetails('dao-hai-tac-128', chapters[0].id)
     eq(details.pages, expectedPages)
+    // (id cũ có đuôi '.html' được đổi sang đường dẫn không đuôi mà web đang dùng; ảnh quảng cáo ngoài .page-chapter bị bỏ)
     const legacy = await source.getChapterDetails('dao-hai-tac-128', 'https://truyenqqvn.com/truyen-tranh/dao-hai-tac-128-chap-1100.html')
     eq(legacy.pages, expectedPages)
+
+    // Trang bảo trì (200) -> báo lỗi thay vì trả rỗng hoặc lấy mã truyện làm tên
+    await assert.rejects(source.getMangaDetails('bao-tri-1'), /không đọc được trang truyện/)
+    await assert.rejects(source.getChapters('bao-tri-1'), /không tìm thấy chương/)
+    await assert.rejects(source.getChapterDetails('bao-tri-1', '/truyen-tranh/bao-tri-1-chap-1'), /không tìm thấy ảnh/)
+    const beforeLoading = requested.length
+    await assert.rejects(source.getChapters('__loading__'), /đang tải/)
+    assert.strictEqual(requested.length, beforeLoading)
 
     // Lỗi HTTP phải báo rõ ràng
     await assert.rejects(source.getMangaDetails('khong-ton-tai-1'), /HTTP 404/)
@@ -226,6 +236,11 @@ async function testTruyenQQ() {
 
 async function testNetTruyen() {
     const D = 'https://nettruyen.gg'
+    // Ngày không ghi năm, rơi vào 10 ngày tới (giờ Việt Nam): phải hiểu là năm trước, không phải tương lai
+    const DAY = 24 * 60 * 60 * 1000
+    const soon = new Date(Date.now() + 7 * 60 * 60 * 1000 + 10 * DAY)
+    const soonDay = String(soon.getUTCDate()).padStart(2, '0')
+    const soonMonth = String(soon.getUTCMonth() + 1).padStart(2, '0')
     const f = name => fixture(`nettruyen/${name}`)
     const { source, requested } = loadSource('NetTruyen', {
         [`${D}/tim-truyen`]: f('tim-truyen.html'),
@@ -244,7 +259,12 @@ async function testNetTruyen() {
         [`${D}/truyen-tranh/forbidden`]: { status: 403, data: '<html>Forbidden</html>' },
         [`${D}/truyen-tranh/cf-header`]: { status: 403, data: '<html></html>', headers: { Server: 'cloudflare' } },
         [`${D}/Comic/Services/ComicService.asmx/ChapterList?slug=van-co-chi-ton`]: f('chapters.json'),
-        [`${D}/truyen-tranh/one-piece/chapter-1100/123456`]: f('chapter.html'),
+        [`${D}/truyen-tranh/one-piece/chapter-1100`]: f('chapter.html'),
+        [`${D}/truyen-tranh/bao-tri`]: '<html><body><h1>Đang bảo trì</h1></body></html>',
+        [`${D}/truyen-tranh/bao-tri/chapter-1`]: '<html><body><h1>Đang bảo trì</h1></body></html>',
+        [`${D}/truyen-tranh/lich`]: `<html><body><article id="item-detail"><h1 class="title-detail">Lịch</h1>
+            <div id="nt_listchapter"><ul><li class="row"><div class="chapter"><a href="/truyen-tranh/lich/chapter-2">Chapter 2</a></div>
+            <div class="col-xs-4">${soonDay}/${soonMonth}</div></li></ul></div></article></body></html>`,
         [`${D}/tim-truyen/action-95?status=2&sort=11`]: f('last-page.html'),
         [`${D}/tim-truyen?sort=13`]: f('hot.html'),
         ['https://nt.example/truyen-tranh/one-piece']: f('manga.html')
@@ -318,9 +338,15 @@ async function testNetTruyen() {
     const chapters = await source.getChapters('one-piece')
     eq(chapters.map(c => c.chapNum), [1100, 1099.5, 1])
     eq(chapters.map(c => c.sortingIndex), [0, -1, -2])
-    assert.strictEqual(chapters[0].id, '/truyen-tranh/one-piece/chapter-1100/123456')
+    // Mã chương giống dạng API (bỏ số định danh '/123456' của link HTML) để không đổi khi API lỗi
+    eq(chapters.map(c => c.id), ['/truyen-tranh/one-piece/chapter-1100', '/truyen-tranh/one-piece/chapter-1099-5', '/truyen-tranh/one-piece/chapter-1'])
     assert.strictEqual(chapters[1].time.getFullYear(), 2026)
-    assert.strictEqual(chapters[2].time.getFullYear(), 2018)
+    // '01/01/18' là 0 giờ ngày 1/1/2018 giờ Việt Nam
+    assert.strictEqual(chapters[2].time.getTime(), Date.UTC(2017, 11, 31, 17))
+    const dated = (await source.getChapters('lich'))[0].time
+    assert.ok(dated.getTime() <= Date.now() + DAY)
+    const datedVn = new Date(dated.getTime() + 7 * 60 * 60 * 1000)
+    eq([datedVn.getUTCDate(), datedVn.getUTCMonth()], [soon.getUTCDate(), soon.getUTCMonth()])
 
     // Chương qua API (HTML không có danh sách); API trả cũ nhất trước -> sắp lại mới nhất trước
     const ajax = await source.getChapters('van-co-chi-ton')
@@ -331,12 +357,21 @@ async function testNetTruyen() {
     ])
     assert.strictEqual(ajax[0].time.getFullYear(), 2026)
     // 'yyyy-MM-dd HH:mm:ss' đọc theo giờ máy (Safari không tự đọc dạng này)
-    eq([ajax[2].time.getFullYear(), ajax[2].time.getMonth(), ajax[2].time.getDate(), ajax[2].time.getHours()], [2024, 0, 2, 3])
+    assert.strictEqual(ajax[2].time.toISOString(), '2024-01-01T20:04:05.000Z')
     assert.strictEqual(unknownAuthor.mangaInfo.desc, 'Đoạn 1.\nĐoạn 2.')
 
     // Ảnh chương
     const details = await source.getChapterDetails('one-piece', chapters[0].id)
-    eq(details.pages, ['https://img.test/p/1.jpg', 'https://img.test/p/2.jpg', 'https://img.test/p/3.jpg'])
+    // data-src được ưu tiên; dấu cách và chữ có dấu trong URL được mã hoá; logo của web bị bỏ
+    eq(details.pages, ['https://img.test/p/1-hd.jpg', 'https://img.test/p/2.jpg', 'https://img.test/p/3.jpg', 'https://img.test/p/%E1%BA%A3nh%204.jpg'])
+
+    // Trang bảo trì (200) -> báo lỗi; ô "Đang tải…" không gửi request
+    await assert.rejects(source.getMangaDetails('bao-tri'), /không đọc được trang truyện/)
+    await assert.rejects(source.getChapters('bao-tri'), /không đọc được danh sách chương/)
+    await assert.rejects(source.getChapterDetails('bao-tri', '/truyen-tranh/bao-tri/chapter-1'), /không tìm thấy ảnh/)
+    const beforeLoading = requested.length
+    await assert.rejects(source.getChapters('__loading__'), /đang tải/)
+    assert.strictEqual(requested.length, beforeLoading)
 
     await assert.rejects(source.getMangaDetails('khong-co'), /HTTP 404/)
     // 403 thường báo mã HTTP; 403 của Cloudflare (header/trang thử thách) báo cần Cloudflare Bypass
@@ -349,20 +384,21 @@ async function testNetTruyen() {
     assert.strictEqual(unknownAuthor.mangaInfo.hentai, true)
 
     // Mục trang chủ lỗi/trống ghi lý do trên tiêu đề
-    const broken = loadSource('NetTruyen', {
-        [`${D}/tim-truyen`]: '<html><body>Không có truyện</body></html>',
-        [`${D}/tim-truyen?sort=0`]: '<html></html>',
+    // Chỉ thử URL dự phòng khi gặp 404; lỗi 500 / Cloudflare / 429 báo ngay, không gọi thêm
+    const { source: broken, requested: brokenRequests } = loadSource('NetTruyen', {
+        [`${D}/tim-truyen`]: { status: 500, data: 'error' },
         [`${D}/`]: '<html></html>',
         [`${D}/tim-truyen?sort=11`]: { status: 503, data: 'Just a moment...' },
         [`${D}/tim-truyen?status=2`]: { status: 429, data: 'Too Many Requests' }
-    }, { quiet: true }).source
+    }, { quiet: true })
     const brokenSections = await homeSections(broken)
     eq([...brokenSections.values()].map(section => section.title), [
-        'Mới cập nhật (không có truyện)',
+        'Mới cập nhật (lỗi HTTP 500)',
         'Top tháng (cần Cloudflare Bypass)',
         'Hoàn thành (web đang giới hạn, thử lại sau)'
     ])
     eq([...brokenSections.values()].map(section => section.items.length), [0, 0, 0])
+    eq(brokenRequests.map(r => r.url.replace(D, '')).sort(), ['/tim-truyen', '/tim-truyen?sort=11', '/tim-truyen?status=2'])
 
     // Cài đặt tên miền
     const settings = await openSettings(source)
@@ -378,7 +414,15 @@ async function testGocTruyenTranhVui() {
     const f = name => fixture(`goctruyentranhvui/${name}`)
     const S = `${D}/api/v2/search?p=0`
     let denials = 1
+    let sessionCalls = 0
     const { source, requested } = loadSource('GocTruyenTranhVui', {
+        [`${D}/api/comic/201/chapter?limit=-1`]: f('chapters-extra.json'),
+        // Hết phiên ở API chương: lần đầu result rỗng, sau khi mở lại trang truyện thì được
+        [`${D}/api/comic/301/chapter?limit=-1`]: () => (++sessionCalls === 1
+            ? '{"result":null,"messages":{"messages":["Phiên làm việc đã hết hạn"]}}'
+            : f('chapters.json')),
+        [`${D}/truyen/session-test`]: f('manga.html'),
+        [`${D}/truyen/bao-tri`]: '<html><body>Bảo trì</body></html>',
         [`${S}&orders%5B%5D=recentDate`]: f('search-latest.json'),
         [`${D}/api/v2/search?p=1&orders%5B%5D=recentDate`]: f('search-last.json'),
         [`${S}&orders%5B%5D=viewCount`]: f('search-last.json'),
@@ -393,6 +437,7 @@ async function testGocTruyenTranhVui() {
         // Lần đầu bị từ chối (hết phiên) -> mở lại trang truyện -> lần hai được
         [`POST ${D}/api/chapter/loadAll`]: request => {
             if (request.data.includes('chapterNumber=99')) return f('loadall-denied.json')
+            if (request.data.includes('chapterNumber=98')) return { status: 503, data: 'Just a moment...' }
             return denials-- > 0 ? f('loadall-denied.json') : f('loadall.json')
         }
     }, { quiet: true })
@@ -458,6 +503,24 @@ async function testGocTruyenTranhVui() {
     assert.strictEqual(calls[0].data, 'comicId=101&chapterNumber=17&nameEn=hoa-si-ve-nen-ham-nguc')
     assert.strictEqual(calls[0].headers['content-type'], 'application/x-www-form-urlencoded')
     await assert.rejects(source.getChapterDetails('101:hoa-si-ve-nen-ham-nguc', '99'), /cần đăng nhập/)
+    // Cloudflare khi tải ảnh: báo ngay, không thử lại và không báo nhầm là cần đăng nhập
+    const beforeCf = requested.length
+    await assert.rejects(source.getChapterDetails('101:hoa-si-ve-nen-ham-nguc', '98'), /Cloudflare/)
+    assert.strictEqual(requested.length - beforeCf, 1)
+
+    // Bỏ chương trùng; có chương không phải số thì giữ thứ tự API (API trả cũ nhất trước nên đảo lại)
+    const extra = await source.getChapters('201:truyen-ngoai')
+    eq(extra.map(c => [c.id, c.name ?? null, c.sortingIndex]), [['3', null, 0], ['Ngoại truyện', 'Ngoại truyện', -1], ['2', null, -2], ['1', null, -3]])
+    // Hết phiên ở API chương: mở lại trang truyện rồi thử lại một lần
+    const beforeSession = requested.length
+    eq((await source.getChapters('301:session-test')).map(c => c.id), ['17', '16.5', '1'])
+    eq(requested.slice(beforeSession).map(r => `${r.method} ${r.url.replace(D, '')}`), [
+        'GET /api/comic/301/chapter?limit=-1', 'GET /truyen/session-test', 'GET /api/comic/301/chapter?limit=-1'
+    ])
+    // Thể loại ở trang truyện không khớp thể loại của web -> báo lỗi, không trả toàn bộ truyện
+    await assert.rejects(source.getSearchResults(query({ includedTags: [{ id: 'name:Không có', label: 'Không có' }] }), undefined), /không tìm thấy thể loại/)
+    await assert.rejects(source.getMangaDetails('9:bao-tri'), /không đọc được trang truyện/)
+    await assert.rejects(source.getChapters('__loading__'), /đang tải/)
 
     // Trang chủ: lần đầu hiện ô "Đang tải…"; lần sau hiện ngay danh sách lần trước rồi làm mới,
     // làm mới lỗi thì giữ danh sách cũ và ghi lý do

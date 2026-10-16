@@ -46,7 +46,7 @@ import {
 const DEFAULT_DOMAIN = 'https://truyenqqko.com'
 
 export const TruyenQQInfo: SourceInfo = {
-    version: '1.3.7',
+    version: '1.3.8',
     name: 'TruyenQQ',
     icon: 'icon.png',
     author: 'trungtoan46',
@@ -69,7 +69,7 @@ interface ListMetadata {
 
 // Web đã bỏ đuôi '.html' (truyenqqko.com); giữ URL cũ làm dự phòng, thử lần lượt tới khi có truyện.
 const LATEST_PATHS = ['/truyen-moi-cap-nhat', '/truyen-moi-cap-nhat/trang-1', '/truyen-moi-cap-nhat/trang-1.html', '/']
-const ADVANCED_SEARCH_PATHS = ['/tim-kiem-nang-cao', '/tim-kiem-nang-cao.html']
+const ADVANCED_SEARCH_PATHS = ['/tim-kiem-nang-cao']
 const HOME_SECTIONS: HomeSectionInfo[] = [
     { id: 'latest', title: 'Mới cập nhật', paths: LATEST_PATHS, type: HomeSectionType.singleRowNormal },
     { id: 'favorite', title: 'Yêu thích', paths: ['/truyen-yeu-thich', '/truyen-yeu-thich/trang-1', '/truyen-yeu-thich/trang-1.html'], type: HomeSectionType.singleRowNormal }
@@ -153,7 +153,11 @@ export class TruyenQQ implements SearchResultsProviding, MangaProviding, Chapter
     }
 
     async getChapters(mangaId: string): Promise<Chapter[]> {
-        return parseChapters((await this.loadMangaPage(mangaId)).$)
+        if (isLoadingTile(mangaId)) throw new Error('Danh sách đang tải, vui lòng chờ một chút.')
+        const chapters = parseChapters((await this.loadMangaPage(mangaId)).$)
+        // Trả danh sách rỗng khi cập nhật thư viện có thể làm app xoá chương đã đọc: báo lỗi thay vào đó.
+        if (chapters.length === 0) throw new Error('TruyenQQ: không tìm thấy chương nào (web có thể đang bảo trì hoặc đã đổi giao diện)')
+        return chapters
     }
 
     /** Trang truyện dùng cho cả chi tiết lẫn danh sách chương: nhớ tạm để không tải hai lần. */
@@ -165,10 +169,12 @@ export class TruyenQQ implements SearchResultsProviding, MangaProviding, Chapter
     }
 
     async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
-        // Bản cũ (<= 1.1.0) lưu id chương là URL đầy đủ; chuyển về path để chạy với domain hiện tại.
+        // Bản cũ lưu id chương là URL đầy đủ (<= 1.1.0) hoặc có đuôi '.html' (<= 1.2.1); web hiện tại không dùng '.html'.
         const domain = await this.site.load()
-        const $ = await this.loadPage(domain + toPath(chapterId))
-        return parseChapterDetails($, mangaId, chapterId, domain)
+        const $ = await this.loadPage(domain + toPath(chapterId).replace(/\.html$/i, ''))
+        const details = parseChapterDetails($, mangaId, chapterId, domain)
+        if (details.pages.length === 0) throw new Error('TruyenQQ: không tìm thấy ảnh trong chương này')
+        return details
     }
 
     async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
@@ -210,7 +216,7 @@ export class TruyenQQ implements SearchResultsProviding, MangaProviding, Chapter
         if (title) {
             // Tìm theo tên: web không lọc kết hợp với thể loại/tình trạng.
             const q = encodeURIComponent(title)
-            return toPagedResults(await this.loadFirstList([`${domain}/tim-kiem?q=${q}`, `${domain}/tim-kiem.html?q=${q}`]))
+            return toPagedResults(await this.loadFirstList([`${domain}/tim-kiem?q=${q}`]))
         }
 
         const included = genreTags(query.includedTags)

@@ -38,7 +38,8 @@ export class DomainSetting {
         const empty = typeof value !== 'string' || value.trim() === ''
         const domain = empty ? undefined : normalizeDomain(value)
         if (!empty && domain === undefined) return
-        await this.stateManager.store(DOMAIN_KEY, domain ?? null)
+        // Lưu chuỗi rỗng (không lưu null) khi về mặc định.
+        await this.stateManager.store(DOMAIN_KEY, domain ?? '')
         this.cached = domain ?? this.defaultDomain
     }
 

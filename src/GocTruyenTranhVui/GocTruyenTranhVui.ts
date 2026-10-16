@@ -21,7 +21,7 @@ import {
     SourceManga,
     TagSection
 } from '@paperback/types'
-import { checkResponse } from '../../shared/utils'
+import { checkResponse, cloudflareError, errorStatus, isCloudflareBlock } from '../../shared/utils'
 import { FilterOption, optionSection, pickOption } from '../../shared/filters'
 import { firstListWithItems, HomeSectionInfo, isLoadingTile, ListPage, loadHomeSections, toPagedResults } from '../../shared/lists'
 import { DomainSetting } from '../../shared/settings'
@@ -42,7 +42,7 @@ const DEFAULT_DOMAIN = 'https://goctruyentranhvui31.com'
 const SOURCE_NAME = 'Góc Truyện Tranh Vui'
 
 export const GocTruyenTranhVuiInfo: SourceInfo = {
-    version: '1.0.2',
+    version: '1.0.3',
     name: SOURCE_NAME,
     icon: 'icon.png',
     author: 'trungtoan46',
@@ -152,10 +152,30 @@ export class GocTruyenTranhVui implements SearchResultsProviding, MangaProviding
     }
 
     async getChapters(mangaId: string): Promise<Chapter[]> {
+        if (isLoadingTile(mangaId)) throw new Error('Danh sách đang tải, vui lòng chờ một chút.')
         const domain = await this.site.load()
-        const { id } = await this.resolveIds(mangaId)
-        const response = await this.fetch(`${domain}/api/comic/${encodeURIComponent(id)}/chapter?limit=-1`, { headers: XHR })
-        return parseChapters(response.data ?? '')
+        const { id, slug } = await this.resolveIds(mangaId)
+        const url = `${domain}/api/comic/${encodeURIComponent(id)}/chapter?limit=-1`
+        const load = async () => parseChapters((await this.fetch(url, { headers: XHR })).data ?? '')
+
+        let chapters: Chapter[]
+        try {
+            chapters = await load()
+        } catch (error) {
+            // Hết phiên (API trả result rỗng, không kèm mã HTTP): mở lại trang truyện để lấy cookie mới rồi thử lần nữa.
+            if (errorStatus(error) !== undefined) throw error
+            await this.refreshSession(domain, slug)
+            chapters = await load()
+        }
+        // Trả danh sách rỗng khi cập nhật thư viện có thể làm app xoá chương đã đọc: báo lỗi thay vào đó.
+        if (chapters.length === 0) throw new Error(`${SOURCE_NAME}: chưa có chương nào hoặc web đang lỗi`)
+        return chapters
+    }
+
+    /** Mở lại trang truyện để web cấp cookie phiên mới. */
+    private async refreshSession(domain: string, slug: string): Promise<void> {
+        const response = await this.fetch(`${domain}/truyen/${slug}`, { allowErrors: true })
+        if (isCloudflareBlock(response)) throw cloudflareError(response.status, SOURCE_NAME)
     }
 
     async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
@@ -173,13 +193,14 @@ export class GocTruyenTranhVui implements SearchResultsProviding, MangaProviding
                 headers: { ...XHR, 'content-type': 'application/x-www-form-urlencoded' },
                 allowErrors: true
             })
+            if (isCloudflareBlock(response)) throw cloudflareError(response.status, SOURCE_NAME)
             return response.status < 400 ? parseImageList(response.data ?? '', domain) : undefined
         }
 
         let pages = await loadImages()
         if (!pages) {
             // Phiên làm việc hết hạn: mở lại trang truyện để web cấp cookie mới rồi thử lần nữa.
-            await this.fetch(`${domain}/truyen/${slug}`, { allowErrors: true })
+            await this.refreshSession(domain, slug)
             pages = await loadImages()
         }
         if (!pages) {
@@ -229,10 +250,10 @@ export class GocTruyenTranhVui implements SearchResultsProviding, MangaProviding
         const categoryIds = tags.filter(tag => tag.id.startsWith('cat:')).map(tag => tag.id.slice(4))
         const names = tags.filter(tag => tag.id.startsWith('name:')).map(tag => tag.label.toLowerCase())
         if (names.length > 0) {
-            const categories = await this.getCategories().catch(() => [] as ApiCategory[])
-            for (const category of categories) {
-                if (names.includes(category.name.toLowerCase())) categoryIds.push(String(category.id))
-            }
+            // Không đổi được tên sang mã thể loại thì báo lỗi, đừng trả về toàn bộ truyện như chưa lọc.
+            const matched = (await this.getCategories()).filter(category => names.includes(category.name.toLowerCase()))
+            if (matched.length === 0) throw new Error(`${SOURCE_NAME}: không tìm thấy thể loại này trên web`)
+            categoryIds.push(...matched.map(category => String(category.id)))
         }
         for (const id of new Set(categoryIds)) params.push(`categories%5B%5D=${encodeURIComponent(id)}`)
         for (const tag of tags.filter(item => item.id.startsWith('status:'))) {

@@ -74,8 +74,11 @@ export function stripBoilerplate(desc: string): string {
 }
 
 export function parseMangaDetails($: CheerioAPI, mangaId: string, domain: string): SourceManga {
+    // Trang bảo trì / chống bot cũng trả 200: báo lỗi thay vì ghi đè tên truyện bằng mã truyện.
     const $detail = $('#item-detail').length > 0 ? $('#item-detail') : $('body')
-    const title = cleanText($detail.find('h1.title-detail, h1').first().text()) || mangaId
+    const title = cleanText($detail.find('h1.title-detail').first().text())
+        || ($('#item-detail').length > 0 ? cleanText($detail.find('h1').first().text()) : '')
+    if (!title) throw new Error('NetTruyen: không đọc được trang truyện (web có thể đang bảo trì hoặc đã đổi giao diện)')
     const otherNames = cleanText($detail.find('li.othername h2, .other-name').first().text())
         .split(/[;,]/)
         .map(name => name.trim())
@@ -105,6 +108,14 @@ export function parseMangaDetails($: CheerioAPI, mangaId: string, domain: string
     })
 }
 
+/**
+ * Mã chương dạng API: '/truyen-tranh/<truyện>/chapter-1100'. Link trong HTML có thể thêm số định danh
+ * ('/chapter-1100/123456'); bỏ đi để mã chương không đổi khi API lỗi và phải đọc HTML.
+ */
+export function chapterPath(href: string): string {
+    return toPath(href).replace(/(\/(?:chap|chapter|chuong)-[^/]+)\/\d+\/?$/i, '$1')
+}
+
 /** Danh sách chương có sẵn trong HTML (#nt_listchapter), mới nhất trước. */
 export function parseChapters($: CheerioAPI): Chapter[] {
     const $rows = $('#nt_listchapter li.row, .list-chapter li.row').filter((_, row) => !$(row).hasClass('heading'))
@@ -115,7 +126,7 @@ export function parseChapters($: CheerioAPI): Chapter[] {
         const $link = $row.find('.chapter a, a').first()
         const href = $link.attr('href')
         if (!href) return
-        const id = toPath(href)
+        const id = chapterPath(href)
         if (seen.has(id)) return
         seen.add(id)
 
@@ -155,7 +166,7 @@ export function parseChapterApi(json: string, mangaId: string): Chapter[] {
     const items: { path: string, name: string, chapNum: number, time: Date }[] = []
     list.forEach((item, index) => {
         const slug = item.chapter_slug ?? item.slug
-        const path = item.url ? toPath(item.url) : slug ? `/truyen-tranh/${mangaId}/${slug}` : undefined
+        const path = item.url ? chapterPath(item.url) : slug ? chapterPath(`/truyen-tranh/${mangaId}/${slug}`) : undefined
         if (!path) return
         const name = cleanText(item.chapter_name ?? item.name ?? '')
         const num = item.chapter_num !== undefined ? parseFloat(String(item.chapter_num)) : NaN
@@ -182,7 +193,8 @@ export function parseChapterApi(json: string, mangaId: string): Chapter[] {
 export function parseChapterDetails($: CheerioAPI, mangaId: string, chapterId: string, domain: string): ChapterDetails {
     const pages: string[] = []
     $('#chapter-content img, .reading-detail .page-chapter img, .chapter-content img, .page-chapter img').each((_, element) => {
-        const url = imageFrom($(element), domain)
+        // Thứ tự thuộc tính theo extension NetTruyenViet của Mihon.
+        const url = imageFrom($(element), domain, ['data-src', 'data-original', 'data-cdn', 'src'])
         // Bỏ logo của web chèn giữa các trang.
         if (url && !/\/assets\/images\/nettruyen[^/]*\.(webp|png|jpe?g)$/i.test(url) && !pages.includes(url)) pages.push(url)
     })

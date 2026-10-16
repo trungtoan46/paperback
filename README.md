@@ -15,9 +15,9 @@
 
 | | Nguồn | Trang web | Phiên bản |
 |:---:|---|---|:---:|
-| <img src="src/TruyenQQ/includes/icon.png" width="32"> | **TruyenQQ** | truyenqqko.com | 1.3.7 |
-| <img src="src/NetTruyen/includes/icon.png" width="32"> | **NetTruyen** | nettruyen.gg | 1.1.6 |
-| <img src="src/GocTruyenTranhVui/includes/icon.png" width="32"> | **Góc Truyện Tranh Vui** | goctruyentranhvui31.com | 1.0.2 |
+| <img src="src/TruyenQQ/includes/icon.png" width="32"> | **TruyenQQ** | truyenqqko.com | 1.3.8 |
+| <img src="src/NetTruyen/includes/icon.png" width="32"> | **NetTruyen** | nettruyen.gg | 1.1.7 |
+| <img src="src/GocTruyenTranhVui/includes/icon.png" width="32"> | **Góc Truyện Tranh Vui** | goctruyentranhvui31.com | 1.0.3 |
 
 > [!NOTE]
 > Cần app **Paperback 0.8** (đã thử trên 0.8.11). Paperback chỉ có trên **iPhone/iPad**, không dùng được trên Android.
@@ -156,7 +156,7 @@ Vào **Settings → Extensions → chọn nguồn**.
 |---|---|
 | **Đổi tên miền** | Web đổi địa chỉ (chuyện rất hay xảy ra). Nhập tên miền mới, ví dụ `truyenqqxx.com`; không cần `https://`. Bấm **Dùng tên miền mặc định** để quay lại như cũ. Truyện đã lưu trong Library vẫn đọc được sau khi đổi. |
 | **Cloudflare Bypass** | App báo *"Cloudflare chặn"* hoặc mục trang chủ ghi *"(cần Cloudflare Bypass)"*. Bấm nút này (hoặc biểu tượng ☁ ở Discover), đợi trang web tải xong rồi đóng lại. |
-| **Đăng nhập** (Góc Truyện Tranh Vui) | Một số chương chỉ đọc được khi đã đăng nhập. Mở **Cloudflare Bypass**, đăng nhập trên trang web hiện ra rồi đóng lại. |
+| **Đăng nhập** (Góc Truyện Tranh Vui) | Một số chương chỉ đọc được khi đã đăng nhập. Có thể thử mở **Cloudflare Bypass**, đăng nhập trên trang web hiện ra rồi đóng lại; nhưng web còn dùng mã đăng nhập riêng mà nguồn chưa gửi được, nên các chương này **có thể vẫn chưa đọc được**. |
 
 ---
 
@@ -174,7 +174,8 @@ Khi có bản mới, vào **Settings → Extensions → repo** và bấm cập n
 | Mục trang chủ ghi **(web đang giới hạn, thử lại sau)** hoặc báo *HTTP 429* | Web chặn vì tải quá nhiều trong thời gian ngắn. Đợi vài phút rồi thử lại. |
 | Mục trang chủ ghi **(lỗi HTTP …)** hoặc **(không có truyện)** | Web có thể đã đổi địa chỉ hoặc giao diện. Thử **Đổi tên miền**; nếu vẫn lỗi, báo lỗi kèm ảnh chụp. |
 | Không mở được truyện nào, web đã đổi tên miền | **Đổi tên miền** sang địa chỉ mới (mục 3). |
-| Góc Truyện Tranh Vui báo *Không tải được ảnh chương* | Chương đó cần đăng nhập: đăng nhập qua **Cloudflare Bypass** (mục 3). |
+| Góc Truyện Tranh Vui báo *Không tải được ảnh chương* | Chương đó có thể cần đăng nhập: thử đăng nhập qua **Cloudflare Bypass** (mục 3). Nếu vẫn không được thì hiện nguồn chưa hỗ trợ chương cần đăng nhập. |
+| Báo *không đọc được trang truyện* hoặc *không tìm thấy chương nào / ảnh nào* | Web đang bảo trì, chặn tạm thời hoặc đã đổi giao diện. Thử lại sau ít phút; nếu vẫn lỗi, báo lỗi kèm ảnh chụp. Nguồn cố ý báo lỗi thay vì trả danh sách rỗng, để app không xoá chương bạn đã đọc khi cập nhật thư viện. |
 | Danh sách chương bị thiếu (không có từ chương 1) | Cập nhật nguồn lên bản mới nhất (NetTruyen từ 1.1.3 đã sửa). |
 | Ô **Đang tải…** hiện rất lâu | Web đang chậm hoặc chặn. Đợi thêm; nếu quá 30 giây, thử **Cloudflare Bypass** rồi kéo xuống để tải lại. |
 | App không thấy bản mới | Đợi khoảng 5 phút, rồi mở lại **Extensions**. |
@@ -201,6 +202,12 @@ Khi có bản mới, vào **Settings → Extensions → repo** và bấm cập n
 | `docs/images/` | Ảnh minh hoạ cho README; `loading.png` là ảnh của ô "Đang tải…" (app tải qua GitHub) |
 
 Mỗi thư mục trong `src/` phải là một nguồn (`src/X/X.ts`); code dùng chung để ở `shared/`.
+
+Quy ước chung:
+
+- Trang lỗi/bảo trì vẫn trả HTTP 200, nên khi không đọc được trang truyện, danh sách chương hay ảnh chương, nguồn **ném lỗi** thay vì trả danh sách rỗng (để app không xoá chương khi cập nhật thư viện).
+- Danh sách nhiều URL dự phòng: chỉ thử URL kế tiếp khi gặp 404/410 hoặc trang không có truyện; lỗi khác (Cloudflare, 429, 5xx, hết giờ) báo ngay.
+- Ngày giờ trên web được hiểu là giờ Việt Nam (UTC+7); ngày không ghi năm mà rơi vào tương lai thì tính là năm trước.
 
 Ghi chú theo nguồn:
 

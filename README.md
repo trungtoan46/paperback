@@ -38,10 +38,15 @@ npm test        # build rồi chạy smoke test (không gọi mạng)
 Thử trực tiếp trên máy: `npm run serve`, rồi trong Paperback thêm repo
 `http://<IP-máy-tính>:8080` (cùng mạng Wi-Fi).
 
-## Thêm vào Paperback
+## Thêm vào Paperback (iPhone/iPad)
 
-Thêm repo trỏ tới thư mục `0.8`, ví dụ khi bật GitHub Pages cho nhánh `main`:
-`https://trungtoan46.github.io/paperback/0.8`.
+1. Paperback → **Settings** → **External Repositories** → **+**.
+2. Dán URL: `https://raw.githubusercontent.com/trungtoan46/paperback/main/0.8`
+3. Vào repo vừa thêm, cài **TruyenQQ** và/hoặc **NetTruyen**.
+4. Nếu báo lỗi Cloudflare: Settings → Sources → chọn nguồn → **Cloudflare Bypass**,
+   đợi trang web tải xong rồi đóng lại.
+
+Sau mỗi lần push, GitHub có thể cache file khoảng 5 phút; app chỉ cập nhật nguồn khi `version` tăng.
 
 ## Khi web đổi tên miền
 

@@ -14,5 +14,6 @@
     "@paperback/types": "0.8.7",
     "cheerio": "1.0.0-rc.12",
     "typescript": "^5.4.5"
-  }
+  },
+  "baseURL": "https://raw.githubusercontent.com/trungtoan46/paperback/main/0.8"
 }

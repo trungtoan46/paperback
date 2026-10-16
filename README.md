@@ -15,7 +15,7 @@
 
 | | Nguồn | Trang web | Phiên bản |
 |:---:|---|---|:---:|
-| <img src="src/TruyenQQ/includes/icon.png" width="32"> | **TruyenQQ** | truyenqqko.com | 1.3.3 |
+| <img src="src/TruyenQQ/includes/icon.png" width="32"> | **TruyenQQ** | truyenqqko.com | 1.3.4 |
 | <img src="src/NetTruyen/includes/icon.png" width="32"> | **NetTruyen** | nettruyen.gg | 1.1.3 |
 | <img src="src/GocTruyenTranhVui/includes/icon.png" width="32"> | **Góc Truyện Tranh Vui** | goctruyentranhvui31.com | 1.0.0 |
 
@@ -176,7 +176,7 @@ Mỗi thư mục trong `src/` phải là một nguồn (`src/X/X.ts`); code dùn
 
 Ghi chú theo nguồn:
 
-- **TruyenQQ**: đọc HTML; bộ lọc dùng `/tim-kiem-nang-cao` (`category`, `notcategory`, `status`, `sort`). Giới hạn 1 request/giây vì web chặn khi gọi dồn dập.
+- **TruyenQQ**: đọc HTML; bộ lọc dùng `/tim-kiem-nang-cao` (`category`, `notcategory`, `status`, `sort`). Giới hạn 2 request/giây vì web chặn khi gọi dồn dập; danh sách thể loại được nhớ trong phiên.
 - **NetTruyen**: danh sách chương lấy qua `ComicService.asmx/ChapterList` (trang truyện chỉ có ~20 chương mới nhất), lỗi thì đọc HTML.
 - **Góc Truyện Tranh Vui**: dùng API JSON (`/api/v2/search`, `/api/category`, `/api/comic/<id>/chapter`, `POST /api/chapter/loadAll`); id truyện có dạng `<id>:<nameEn>`.
 

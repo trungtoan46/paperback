@@ -100,7 +100,6 @@ async function testTruyenQQ() {
         [`${D}/truyen-tranh/dao-hai-tac-128`]: f('manga.html'),
         [`${D}/truyen-tranh/dao-hai-tac-128-chap-1100`]: f('chapter.html'),
         [`${D}/truyen-tranh/dao-hai-tac-128-chap-1100.html`]: f('chapter.html'),
-        [`${D}/tim-kiem-nang-cao`]: f('advanced.html'),
         // '/tim-kiem-nang-cao?...' không có (404) -> dùng URL dự phòng có '.html'
         [`${D}/tim-kiem-nang-cao.html?category=26&notcategory=36&country=0&status=2&minchapter=0&sort=4`]: f('last-page.html'),
         ['https://qq.example/truyen-tranh/dao-hai-tac-128']: f('manga.html')
@@ -148,13 +147,18 @@ async function testTruyenQQ() {
     ])
     eq(byGenre.metadata, { nextUrl: `${D}/the-loai/action-26/trang-2` })
 
-    // Bộ lọc tình trạng/sắp xếp đọc từ trang tìm kiếm nâng cao; tìm nâng cao có loại trừ thể loại
+    // Bộ lọc tình trạng/sắp xếp theo mã của trang tìm kiếm nâng cao; tìm nâng cao có loại trừ thể loại
     eq(tags.map(t => t.id), ['genres', 'status', 'sort'])
     eq(tags[1].tags, [{ id: 'status:0', label: 'Đang tiến hành' }, { id: 'status:2', label: 'Hoàn thành' }])
-    eq(tags[2].tags.map(t => t.id), ['sort:0', 'sort:2', 'sort:4'])
+    eq(tags[2].tags.map(t => t.id), ['sort:0', 'sort:1', 'sort:2', 'sort:3', 'sort:4', 'sort:5'])
+    // Thể loại nhớ trong phiên: mở Discover lần nữa không tải lại trang chủ
+    const homeRequests = () => requested.filter(r => r.url === D).length
+    const before = homeRequests()
+    await source.getSearchTags()
+    assert.strictEqual(homeRequests(), before)
     assert.strictEqual(await source.supportsTagExclusion(), true)
     const advanced = await source.getSearchResults(query({
-        includedTags: [tags[0].tags[0], tags[1].tags[1], tags[2].tags[2]],
+        includedTags: [tags[0].tags[0], tags[1].tags[1], tags[2].tags.find(t => t.id === 'sort:4')],
         excludedTags: [tags[0].tags[1]]
     }), undefined)
     assert.strictEqual(advanced.results[0].mangaId, 'xyz-9')

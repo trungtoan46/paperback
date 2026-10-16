@@ -25,12 +25,11 @@ import {
 import {
     absoluteUrl,
     cloudflareError,
-    isCloudflareError,
     parseNextPageUrl,
     parseTagLinks,
     toPath
 } from '../../shared/utils'
-import { FilterOption, genreTags, optionSection, pickOption, readFilterOptions } from '../../shared/filters'
+import { FilterOption, genreTags, optionSection, pickOption } from '../../shared/filters'
 import { firstListWithItems, HomeSectionInfo, ListPage, loadHomeSections, toPagedResults } from '../../shared/lists'
 import { DomainSetting } from '../../shared/settings'
 import {
@@ -46,7 +45,7 @@ import {
 const DEFAULT_DOMAIN = 'https://truyenqqko.com'
 
 export const TruyenQQInfo: SourceInfo = {
-    version: '1.3.3',
+    version: '1.3.4',
     name: 'TruyenQQ',
     icon: 'icon.png',
     author: 'trungtoan46',
@@ -75,12 +74,12 @@ const HOME_SECTIONS: HomeSectionInfo[] = [
     { id: 'favorite', title: 'Yêu thích', paths: ['/truyen-yeu-thich', '/truyen-yeu-thich/trang-1', '/truyen-yeu-thich/trang-1.html'], type: HomeSectionType.singleRowNormal }
 ]
 
-// Dùng khi không đọc được lựa chọn từ trang tìm kiếm nâng cao.
-const DEFAULT_STATUS: FilterOption[] = [
+// Giá trị của trang tìm kiếm nâng cao (khớp extension TruyenQQ của Mihon).
+const STATUS: FilterOption[] = [
     { value: '0', label: 'Đang tiến hành' },
     { value: '2', label: 'Hoàn thành' }
 ]
-const DEFAULT_SORT: FilterOption[] = [
+const SORT: FilterOption[] = [
     { value: '0', label: 'Ngày đăng giảm dần' },
     { value: '1', label: 'Ngày đăng tăng dần' },
     { value: '2', label: 'Ngày cập nhật giảm dần' },
@@ -101,10 +100,11 @@ export class TruyenQQ implements SearchResultsProviding, MangaProviding, Chapter
 
     readonly stateManager = App.createSourceStateManager()
     private readonly site = new DomainSetting(this.stateManager, DEFAULT_DOMAIN)
+    private genres: Promise<Tag[]> | undefined
 
     readonly requestManager = App.createRequestManager({
-        // Web chặn khi gọi dồn dập (extension Mihon giới hạn 1 request / 2 giây).
-        requestsPerSecond: 1,
+        // Web chặn khi gọi dồn dập (Mihon giới hạn 1 request / 2 giây); 1/giây làm Discover tải quá chậm.
+        requestsPerSecond: 2,
         requestTimeout: 20000,
         interceptor: {
             interceptRequest: async (request: Request): Promise<Request> => {
@@ -173,17 +173,17 @@ export class TruyenQQ implements SearchResultsProviding, MangaProviding, Chapter
     }
 
     async getSearchTags(): Promise<TagSection[]> {
-        const domain = await this.site.load()
-        const [home, advanced] = await Promise.all([
-            this.loadPage(domain),
-            this.loadFirstPage(ADVANCED_SEARCH_PATHS.map(path => domain + path)).catch(() => undefined)
-        ])
-        const status = advanced ? readFilterOptions(advanced, 'status') : []
-        const sort = advanced ? readFilterOptions(advanced, 'sort') : []
+        // App gọi lại mỗi lần mở Discover: nhớ thể loại trong phiên để bớt request (web giới hạn tốc độ).
+        if (!this.genres) {
+            this.genres = this.site.load()
+                .then(domain => this.loadPage(domain))
+                .then($ => parseTagLinks($, 'a[href*="/the-loai/"]', '/the-loai/'))
+            this.genres.catch(() => { this.genres = undefined })
+        }
         return [
-            App.createTagSection({ id: 'genres', label: 'Thể loại', tags: parseTagLinks(home, 'a[href*="/the-loai/"]', '/the-loai/') }),
-            optionSection('status', 'Tình trạng', status.length > 0 ? status : DEFAULT_STATUS),
-            optionSection('sort', 'Sắp xếp', sort.length > 0 ? sort : DEFAULT_SORT)
+            App.createTagSection({ id: 'genres', label: 'Thể loại', tags: await this.genres }),
+            optionSection('status', 'Tình trạng', STATUS),
+            optionSection('sort', 'Sắp xếp', SORT)
         ].filter(section => section.tags.length > 0)
     }
 
@@ -239,20 +239,6 @@ export class TruyenQQ implements SearchResultsProviding, MangaProviding, Chapter
             ? parseNextPageUrl($, url, PAGER_SELECTOR)
             : parseNextPageByNumber($, url, domain)
         return { results: parseMangaList($, domain), nextUrl: nextUrl !== url ? nextUrl : undefined }
-    }
-
-    /** Trang đầu tiên tải được (không lỗi HTTP) trong danh sách URL. */
-    private async loadFirstPage(urls: string[]): Promise<CheerioAPI> {
-        let lastError: unknown = new Error('Không có URL')
-        for (const url of urls) {
-            try {
-                return await this.loadPage(url)
-            } catch (error) {
-                if (isCloudflareError(error)) throw error
-                lastError = error
-            }
-        }
-        throw lastError
     }
 
     private async loadPage(url: string): Promise<CheerioAPI> {

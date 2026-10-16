@@ -875,23 +875,6 @@ var _Sources = (() => {
   }
 
   // shared/filters.ts
-  function readFilterOptions($, param) {
-    const options = [];
-    const add = (value, label) => {
-      if (value === void 0 || value === "" || value === "-1" || !label) return;
-      if (options.some((option) => option.value === value)) return;
-      options.push({ value, label });
-    };
-    $(`select[name="${param}"] option`).each((_, element) => {
-      add($(element).attr("value")?.trim(), cleanText($(element).text()));
-    });
-    if (options.length > 0) return options;
-    const pattern = new RegExp(`[?&]${param}=([^&#]+)`);
-    $(`a[href*="${param}="]`).each((_, element) => {
-      add($(element).attr("href")?.match(pattern)?.[1], cleanText($(element).text()));
-    });
-    return options;
-  }
   function optionSection(prefix, label, options) {
     return App.createTagSection({
       id: prefix,
@@ -1155,7 +1138,7 @@ var _Sources = (() => {
   // src/TruyenQQ/TruyenQQ.ts
   var DEFAULT_DOMAIN = "https://truyenqqko.com";
   var TruyenQQInfo = {
-    version: "1.3.3",
+    version: "1.3.4",
     name: "TruyenQQ",
     icon: "icon.png",
     author: "trungtoan46",
@@ -1176,11 +1159,11 @@ var _Sources = (() => {
     { id: "latest", title: "M\u1EDBi c\u1EADp nh\u1EADt", paths: LATEST_PATHS, type: import_types.HomeSectionType.singleRowNormal },
     { id: "favorite", title: "Y\xEAu th\xEDch", paths: ["/truyen-yeu-thich", "/truyen-yeu-thich/trang-1", "/truyen-yeu-thich/trang-1.html"], type: import_types.HomeSectionType.singleRowNormal }
   ];
-  var DEFAULT_STATUS = [
+  var STATUS = [
     { value: "0", label: "\u0110ang ti\u1EBFn h\xE0nh" },
     { value: "2", label: "Ho\xE0n th\xE0nh" }
   ];
-  var DEFAULT_SORT = [
+  var SORT = [
     { value: "0", label: "Ng\xE0y \u0111\u0103ng gi\u1EA3m d\u1EA7n" },
     { value: "1", label: "Ng\xE0y \u0111\u0103ng t\u0103ng d\u1EA7n" },
     { value: "2", label: "Ng\xE0y c\u1EADp nh\u1EADt gi\u1EA3m d\u1EA7n" },
@@ -1197,8 +1180,8 @@ var _Sources = (() => {
       this.stateManager = App.createSourceStateManager();
       this.site = new DomainSetting(this.stateManager, DEFAULT_DOMAIN);
       this.requestManager = App.createRequestManager({
-        // Web chặn khi gọi dồn dập (extension Mihon giới hạn 1 request / 2 giây).
-        requestsPerSecond: 1,
+        // Web chặn khi gọi dồn dập (Mihon giới hạn 1 request / 2 giây); 1/giây làm Discover tải quá chậm.
+        requestsPerSecond: 2,
         requestTimeout: 2e4,
         interceptor: {
           interceptRequest: async (request) => {
@@ -1258,17 +1241,16 @@ var _Sources = (() => {
       return toPagedResults(await this.loadFirstList(urls));
     }
     async getSearchTags() {
-      const domain = await this.site.load();
-      const [home, advanced] = await Promise.all([
-        this.loadPage(domain),
-        this.loadFirstPage(ADVANCED_SEARCH_PATHS.map((path) => domain + path)).catch(() => void 0)
-      ]);
-      const status = advanced ? readFilterOptions(advanced, "status") : [];
-      const sort = advanced ? readFilterOptions(advanced, "sort") : [];
+      if (!this.genres) {
+        this.genres = this.site.load().then((domain) => this.loadPage(domain)).then(($) => parseTagLinks($, 'a[href*="/the-loai/"]', "/the-loai/"));
+        this.genres.catch(() => {
+          this.genres = void 0;
+        });
+      }
       return [
-        App.createTagSection({ id: "genres", label: "Th\u1EC3 lo\u1EA1i", tags: parseTagLinks(home, 'a[href*="/the-loai/"]', "/the-loai/") }),
-        optionSection("status", "T\xECnh tr\u1EA1ng", status.length > 0 ? status : DEFAULT_STATUS),
-        optionSection("sort", "S\u1EAFp x\u1EBFp", sort.length > 0 ? sort : DEFAULT_SORT)
+        App.createTagSection({ id: "genres", label: "Th\u1EC3 lo\u1EA1i", tags: await this.genres }),
+        optionSection("status", "T\xECnh tr\u1EA1ng", STATUS),
+        optionSection("sort", "S\u1EAFp x\u1EBFp", SORT)
       ].filter((section) => section.tags.length > 0);
     }
     async supportsTagExclusion() {
@@ -1312,19 +1294,6 @@ var _Sources = (() => {
       const $ = await this.loadPage(url);
       const nextUrl = $(PAGER_SELECTOR).length > 0 ? parseNextPageUrl($, url, PAGER_SELECTOR) : parseNextPageByNumber($, url, domain);
       return { results: parseMangaList($, domain), nextUrl: nextUrl !== url ? nextUrl : void 0 };
-    }
-    /** Trang đầu tiên tải được (không lỗi HTTP) trong danh sách URL. */
-    async loadFirstPage(urls) {
-      let lastError = new Error("Kh\xF4ng c\xF3 URL");
-      for (const url of urls) {
-        try {
-          return await this.loadPage(url);
-        } catch (error) {
-          if (isCloudflareError(error)) throw error;
-          lastError = error;
-        }
-      }
-      throw lastError;
     }
     async loadPage(url) {
       const request = App.createRequest({ url, method: "GET" });

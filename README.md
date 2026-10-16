@@ -4,15 +4,17 @@ Nguồn đọc truyện cho app Paperback (iOS), API 0.8:
 
 | Nguồn | Web | Version |
 |---|---|---|
-| TruyenQQ | https://truyenqqko.com | 1.3.0 |
-| NetTruyen | https://nettruyen.gg | 1.1.0 |
+| TruyenQQ | https://truyenqqko.com | 1.3.1 |
+| NetTruyen | https://nettruyen.gg | 1.1.1 |
 
 Mỗi nguồn có: trang chủ, tìm theo tên, bộ lọc (thể loại, tình trạng, sắp xếp), chi tiết truyện,
 danh sách chương, đọc chương, Cloudflare bypass, và trang cài đặt để đổi tên miền ngay trong app.
 
 - TruyenQQ: trang chủ gồm Mới cập nhật, Yêu thích. Bộ lọc dùng trang tìm kiếm nâng cao,
   cho phép chọn nhiều thể loại và loại trừ thể loại.
-- NetTruyen: trang chủ gồm Mới cập nhật, Top tháng, Hoàn thành (đều lấy từ `/tim-truyen`). Nếu trang truyện
+- NetTruyen: trang chủ gồm Mới cập nhật, Top tháng, Hoàn thành (đều lấy từ `/tim-truyen`).
+- Mục trang chủ nào lỗi hoặc trống sẽ ghi lý do trên tiêu đề, ví dụ "Top tháng (lỗi HTTP 404)".
+- Truyện có thể loại Adult, Smut, Hentai, 18+ được đánh dấu 18+ trong Paperback. Nếu trang truyện
   không có sẵn danh sách chương, nguồn gọi API `ComicService.asmx/ChapterList`.
 
 ## Cấu trúc

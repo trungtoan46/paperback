@@ -838,6 +838,9 @@ var _Sources = (() => {
     });
     return tags;
   }
+  function isAdultContent(tags) {
+    return tags.some((tag) => /\b(adult|smut|hentai)\b|18\s*\+/i.test(tag.label));
+  }
   function genreSection(tags) {
     return tags.length > 0 ? [App.createTagSection({ id: "genres", label: "Th\u1EC3 lo\u1EA1i", tags })] : [];
   }
@@ -846,6 +849,61 @@ var _Sources = (() => {
     const error = new Error(`Cloudflare ch\u1EB7n (HTTP ${status}). V\xE0o c\xE0i \u0111\u1EB7t ngu\u1ED3n ${sourceName} v\xE0 b\u1EA5m "Cloudflare Bypass", sau \u0111\xF3 th\u1EED l\u1EA1i.`);
     error.name = CLOUDFLARE_ERROR;
     return error;
+  }
+  function isCloudflareError(error) {
+    return error instanceof Error && error.name === CLOUDFLARE_ERROR;
+  }
+
+  // shared/lists.ts
+  function toPagedResults(page) {
+    return App.createPagedResults({
+      results: page.results,
+      metadata: page.nextUrl ? { nextUrl: page.nextUrl } : void 0
+    });
+  }
+  async function firstListWithItems(urls, loadList) {
+    let lastError;
+    let loaded = false;
+    for (const url of urls) {
+      try {
+        const page = await loadList(url);
+        loaded = true;
+        if (page.results.length > 0) return page;
+      } catch (error) {
+        if (isCloudflareError(error)) throw error;
+        lastError = error;
+      }
+    }
+    if (!loaded && lastError) throw lastError;
+    return { results: [] };
+  }
+  function describeError(error) {
+    if (isCloudflareError(error)) return "c\u1EA7n Cloudflare Bypass";
+    const status = error instanceof Error ? error.message.match(/HTTP (\d{3})/)?.[1] : void 0;
+    return status ? `l\u1ED7i HTTP ${status}` : "l\u1ED7i t\u1EA3i";
+  }
+  async function loadHomeSections(infos, domain, sectionCallback, loadFirstList, sourceName) {
+    for (const info of infos) {
+      sectionCallback(App.createHomeSection({ id: info.id, title: info.title, type: info.type, containsMoreItems: true }));
+    }
+    await Promise.all(infos.map(async (info) => {
+      let title = info.title;
+      let page = { results: [] };
+      try {
+        page = await loadFirstList(info.paths.map((path) => domain + path));
+        if (page.results.length === 0) title = `${info.title} (kh\xF4ng c\xF3 truy\u1EC7n)`;
+      } catch (error) {
+        console.log(`${sourceName}: l\u1ED7i t\u1EA3i m\u1EE5c ${info.id}: ${error}`);
+        title = `${info.title} (${describeError(error)})`;
+      }
+      sectionCallback(App.createHomeSection({
+        id: info.id,
+        title,
+        type: info.type,
+        items: page.results,
+        containsMoreItems: page.nextUrl !== void 0
+      }));
+    }));
   }
 
   // shared/filters.ts
@@ -1004,7 +1062,7 @@ var _Sources = (() => {
         artist: author || "\u0110ang c\u1EADp nh\u1EADt",
         desc: desc || "Kh\xF4ng c\xF3 m\xF4 t\u1EA3",
         status: mapStatus(status),
-        hentai: false,
+        hentai: isAdultContent(tags),
         tags: genreSection(tags)
       })
     });
@@ -1075,7 +1133,7 @@ var _Sources = (() => {
   // src/NetTruyen/NetTruyen.ts
   var DEFAULT_DOMAIN = "https://nettruyen.gg";
   var NetTruyenInfo = {
-    version: "1.1.0",
+    version: "1.1.1",
     name: "NetTruyen",
     icon: "icon.png",
     author: "trungtoan46",
@@ -1091,9 +1149,9 @@ var _Sources = (() => {
     intents: import_types.SourceIntents.MANGA_CHAPTERS | import_types.SourceIntents.HOMEPAGE_SECTIONS | import_types.SourceIntents.CLOUDFLARE_BYPASS_REQUIRED | import_types.SourceIntents.SETTINGS_UI
   };
   var HOME_SECTIONS = [
-    { id: "latest", title: "M\u1EDBi c\u1EADp nh\u1EADt", path: "/tim-truyen?status=-1&sort=0", type: import_types.HomeSectionType.singleRowNormal },
-    { id: "hot", title: "Top th\xE1ng", path: "/tim-truyen?status=-1&sort=11", type: import_types.HomeSectionType.singleRowNormal },
-    { id: "completed", title: "Ho\xE0n th\xE0nh", path: "/tim-truyen?status=2", type: import_types.HomeSectionType.singleRowNormal }
+    { id: "latest", title: "M\u1EDBi c\u1EADp nh\u1EADt", paths: ["/tim-truyen", "/tim-truyen?sort=0", "/"], type: import_types.HomeSectionType.singleRowNormal },
+    { id: "hot", title: "Top th\xE1ng", paths: ["/tim-truyen?sort=11", "/tim-truyen?status=-1&sort=11", "/hot"], type: import_types.HomeSectionType.singleRowNormal },
+    { id: "completed", title: "Ho\xE0n th\xE0nh", paths: ["/tim-truyen?status=2"], type: import_types.HomeSectionType.singleRowNormal }
   ];
   var DEFAULT_STATUS = [
     { value: "1", label: "\u0110ang ti\u1EBFn h\xE0nh" },
@@ -1174,33 +1232,14 @@ var _Sources = (() => {
       return parseChapterDetails($, mangaId, chapterId, domain);
     }
     async getHomePageSections(sectionCallback) {
-      const domain = await this.site.load();
-      const sections = HOME_SECTIONS.map((info) => App.createHomeSection({
-        id: info.id,
-        title: info.title,
-        type: info.type,
-        containsMoreItems: true
-      }));
-      sections.forEach((section) => sectionCallback(section));
-      await Promise.all(HOME_SECTIONS.map(async (info, index) => {
-        const section = sections[index];
-        try {
-          const url = domain + info.path;
-          const $ = await this.loadPage(url);
-          section.items = parseMangaList($, domain);
-          section.containsMoreItems = parseNextPageUrl($, url, PAGER_SELECTOR) !== void 0;
-        } catch (error) {
-          console.log(`NetTruyen: l\u1ED7i t\u1EA3i m\u1EE5c ${info.id}: ${error}`);
-          section.items = [];
-          section.containsMoreItems = false;
-        }
-        sectionCallback(section);
-      }));
+      await loadHomeSections(HOME_SECTIONS, await this.site.load(), sectionCallback, (urls) => this.loadFirstList(urls), "NetTruyen");
     }
     async getViewMoreItems(homepageSectionId, metadata) {
       const info = HOME_SECTIONS.find((section) => section.id === homepageSectionId);
       if (!info) return App.createPagedResults({ results: [] });
-      return this.getListPage(metadata?.nextUrl ?? await this.site.load() + info.path);
+      const domain = await this.site.load();
+      const urls = metadata?.nextUrl ? [metadata.nextUrl] : info.paths.map((path) => domain + path);
+      return toPagedResults(await this.loadFirstList(urls));
     }
     async getSearchTags() {
       const $ = await this.loadPage(`${await this.site.load()}/tim-truyen`);
@@ -1217,11 +1256,11 @@ var _Sources = (() => {
       return false;
     }
     async getSearchResults(query, metadata) {
-      if (metadata?.nextUrl) return this.getListPage(metadata.nextUrl);
+      if (metadata?.nextUrl) return toPagedResults(await this.loadListPage(metadata.nextUrl));
       const domain = await this.site.load();
       const title = query.title?.trim();
       if (title) {
-        return this.getListPage(`${domain}/tim-truyen?keyword=${encodeURIComponent(title)}`);
+        return toPagedResults(await this.loadListPage(`${domain}/tim-truyen?keyword=${encodeURIComponent(title)}`));
       }
       const genre = genreTags(query.includedTags)[0];
       const params = [];
@@ -1230,15 +1269,18 @@ var _Sources = (() => {
       if (status !== void 0) params.push(`status=${encodeURIComponent(status)}`);
       if (sort !== void 0) params.push(`sort=${encodeURIComponent(sort)}`);
       const base = genre ? absoluteUrl(genre.id, domain) : `${domain}/tim-truyen`;
-      return this.getListPage(params.length > 0 ? `${base}?${params.join("&")}` : base);
+      return toPagedResults(await this.loadListPage(params.length > 0 ? `${base}?${params.join("&")}` : base));
     }
-    async getListPage(url) {
+    async loadFirstList(urls) {
+      return firstListWithItems(urls, (url) => this.loadListPage(url));
+    }
+    async loadListPage(url) {
       const $ = await this.loadPage(url);
       const nextUrl = parseNextPageUrl($, url, PAGER_SELECTOR);
-      return App.createPagedResults({
+      return {
         results: parseMangaList($, await this.site.load()),
-        metadata: nextUrl && nextUrl !== url ? { nextUrl } : void 0
-      });
+        nextUrl: nextUrl !== url ? nextUrl : void 0
+      };
     }
     async loadPage(url) {
       const response = await this.fetch(url);

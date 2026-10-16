@@ -12,7 +12,6 @@ import {
     HomeSectionType,
     MangaProviding,
     PagedResults,
-    PartialSourceManga,
     Request,
     Response,
     SearchRequest,
@@ -32,6 +31,7 @@ import {
     toPath
 } from '../../shared/utils'
 import { FilterOption, genreTags, optionSection, pickOption, readFilterOptions } from '../../shared/filters'
+import { firstListWithItems, HomeSectionInfo, ListPage, loadHomeSections, toPagedResults } from '../../shared/lists'
 import { DomainSetting } from '../../shared/settings'
 import {
     PAGER_SELECTOR,
@@ -46,7 +46,7 @@ import {
 const DEFAULT_DOMAIN = 'https://truyenqqko.com'
 
 export const TruyenQQInfo: SourceInfo = {
-    version: '1.3.0',
+    version: '1.3.1',
     name: 'TruyenQQ',
     icon: 'icon.png',
     author: 'trungtoan46',
@@ -67,15 +67,10 @@ interface ListMetadata {
     nextUrl?: string
 }
 
-interface ListPage {
-    results: PartialSourceManga[]
-    nextUrl?: string
-}
-
 // Web đã bỏ đuôi '.html' (truyenqqko.com); giữ URL cũ làm dự phòng, thử lần lượt tới khi có truyện.
 const LATEST_PATHS = ['/truyen-moi-cap-nhat/trang-1', '/truyen-moi-cap-nhat/trang-1.html', '/']
 const ADVANCED_SEARCH_PATHS = ['/tim-kiem-nang-cao', '/tim-kiem-nang-cao.html']
-const HOME_SECTIONS = [
+const HOME_SECTIONS: HomeSectionInfo[] = [
     { id: 'latest', title: 'Mới cập nhật', paths: LATEST_PATHS, type: HomeSectionType.singleRowNormal },
     { id: 'favorite', title: 'Yêu thích', paths: ['/truyen-yeu-thich/trang-1', '/truyen-yeu-thich/trang-1.html'], type: HomeSectionType.singleRowNormal }
 ]
@@ -165,29 +160,7 @@ export class TruyenQQ implements SearchResultsProviding, MangaProviding, Chapter
     }
 
     async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
-        const domain = await this.site.load()
-        const sections = HOME_SECTIONS.map(info => App.createHomeSection({
-            id: info.id,
-            title: info.title,
-            type: info.type,
-            containsMoreItems: true
-        }))
-        sections.forEach(section => sectionCallback(section))
-
-        // Mỗi mục tải riêng: một mục lỗi không làm hỏng cả trang chủ.
-        await Promise.all(HOME_SECTIONS.map(async (info, index) => {
-            const section = sections[index]!
-            try {
-                const page = await this.loadFirstList(info.paths.map(path => domain + path))
-                section.items = page.results
-                section.containsMoreItems = page.nextUrl !== undefined
-            } catch (error) {
-                console.log(`TruyenQQ: lỗi tải mục ${info.id}: ${error}`)
-                section.items = []
-                section.containsMoreItems = false
-            }
-            sectionCallback(section)
-        }))
+        await loadHomeSections(HOME_SECTIONS, await this.site.load(), sectionCallback, urls => this.loadFirstList(urls), 'TruyenQQ')
     }
 
     async getViewMoreItems(homepageSectionId: string, metadata: ListMetadata | undefined): Promise<PagedResults> {
@@ -195,7 +168,7 @@ export class TruyenQQ implements SearchResultsProviding, MangaProviding, Chapter
         if (!info) return App.createPagedResults({ results: [] })
         const domain = await this.site.load()
         const urls = metadata?.nextUrl ? [metadata.nextUrl] : info.paths.map(path => domain + path)
-        return this.toPagedResults(await this.loadFirstList(urls))
+        return toPagedResults(await this.loadFirstList(urls))
     }
 
     async getSearchTags(): Promise<TagSection[]> {
@@ -218,14 +191,14 @@ export class TruyenQQ implements SearchResultsProviding, MangaProviding, Chapter
     }
 
     async getSearchResults(query: SearchRequest, metadata: ListMetadata | undefined): Promise<PagedResults> {
-        if (metadata?.nextUrl) return this.toPagedResults(await this.loadFirstList([metadata.nextUrl]))
+        if (metadata?.nextUrl) return toPagedResults(await this.loadFirstList([metadata.nextUrl]))
 
         const domain = await this.site.load()
         const title = query.title?.trim()
         if (title) {
             // Tìm theo tên: web không lọc kết hợp với thể loại/tình trạng.
             const q = encodeURIComponent(title)
-            return this.toPagedResults(await this.loadFirstList([`${domain}/tim-kiem?q=${q}`, `${domain}/tim-kiem.html?q=${q}`]))
+            return toPagedResults(await this.loadFirstList([`${domain}/tim-kiem?q=${q}`, `${domain}/tim-kiem.html?q=${q}`]))
         }
 
         const included = genreTags(query.includedTags)
@@ -250,37 +223,21 @@ export class TruyenQQ implements SearchResultsProviding, MangaProviding, Chapter
         } else {
             urls = LATEST_PATHS.map(path => domain + path)
         }
-        return this.toPagedResults(await this.loadFirstList(urls))
+        return toPagedResults(await this.loadFirstList(urls))
     }
 
-    private toPagedResults(page: ListPage): PagedResults {
-        return App.createPagedResults({
-            results: page.results,
-            metadata: page.nextUrl ? { nextUrl: page.nextUrl } : undefined
-        })
-    }
-
-    /** Thử lần lượt từng URL, trả về trang đầu tiên có truyện. Lỗi Cloudflare báo ngay. */
     private async loadFirstList(urls: string[]): Promise<ListPage> {
-        let lastError: unknown
+        return firstListWithItems(urls, url => this.loadListPage(url))
+    }
+
+    private async loadListPage(url: string): Promise<ListPage> {
         const domain = await this.site.load()
-        for (const url of urls) {
-            try {
-                const $ = await this.loadPage(url)
-                const results = parseMangaList($, domain)
-                if (results.length === 0) continue
-                // Chỉ đoán theo số trang khi không có thanh phân trang quen thuộc.
-                const nextUrl = $(PAGER_SELECTOR).length > 0
-                    ? parseNextPageUrl($, url, PAGER_SELECTOR)
-                    : parseNextPageByNumber($, url, domain)
-                return { results, nextUrl: nextUrl !== url ? nextUrl : undefined }
-            } catch (error) {
-                if (isCloudflareError(error)) throw error
-                lastError = error
-            }
-        }
-        if (lastError) throw lastError
-        return { results: [] }
+        const $ = await this.loadPage(url)
+        // Chỉ đoán theo số trang khi không có thanh phân trang quen thuộc.
+        const nextUrl = $(PAGER_SELECTOR).length > 0
+            ? parseNextPageUrl($, url, PAGER_SELECTOR)
+            : parseNextPageByNumber($, url, domain)
+        return { results: parseMangaList($, domain), nextUrl: nextUrl !== url ? nextUrl : undefined }
     }
 
     /** Trang đầu tiên tải được (không lỗi HTTP) trong danh sách URL. */

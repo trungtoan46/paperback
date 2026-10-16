@@ -28,6 +28,7 @@ import {
     parseTagLinks,
     toPath
 } from '../../shared/utils'
+import { firstListWithItems, HomeSectionInfo, ListPage, loadHomeSections, toPagedResults } from '../../shared/lists'
 import { FilterOption, genreTags, optionSection, pickOption, readFilterOptions } from '../../shared/filters'
 import { DomainSetting } from '../../shared/settings'
 import {
@@ -43,7 +44,7 @@ import {
 const DEFAULT_DOMAIN = 'https://nettruyen.gg'
 
 export const NetTruyenInfo: SourceInfo = {
-    version: '1.1.0',
+    version: '1.1.1',
     name: 'NetTruyen',
     icon: 'icon.png',
     author: 'trungtoan46',
@@ -64,12 +65,12 @@ interface ListMetadata {
     nextUrl?: string
 }
 
-// Trang chủ '/' và '/hot' trả về rỗng trên nettruyen.gg (thử trên app 0.8.11),
-// nên mọi mục đều dùng /tim-truyen. sort: 0 = ngày cập nhật, 11 = top tháng.
-const HOME_SECTIONS = [
-    { id: 'latest', title: 'Mới cập nhật', path: '/tim-truyen?status=-1&sort=0', type: HomeSectionType.singleRowNormal },
-    { id: 'hot', title: 'Top tháng', path: '/tim-truyen?status=-1&sort=11', type: HomeSectionType.singleRowNormal },
-    { id: 'completed', title: 'Hoàn thành', path: '/tim-truyen?status=2', type: HomeSectionType.singleRowNormal }
+// Trên app 0.8.11: '/', '/hot' và '/tim-truyen?status=-1&sort=...' trả về rỗng, còn '/tim-truyen?status=2'
+// và trang thể loại chạy được. Mỗi mục thử lần lượt nhiều URL; sort=11 là top tháng.
+const HOME_SECTIONS: HomeSectionInfo[] = [
+    { id: 'latest', title: 'Mới cập nhật', paths: ['/tim-truyen', '/tim-truyen?sort=0', '/'], type: HomeSectionType.singleRowNormal },
+    { id: 'hot', title: 'Top tháng', paths: ['/tim-truyen?sort=11', '/tim-truyen?status=-1&sort=11', '/hot'], type: HomeSectionType.singleRowNormal },
+    { id: 'completed', title: 'Hoàn thành', paths: ['/tim-truyen?status=2'], type: HomeSectionType.singleRowNormal }
 ]
 
 // Dùng khi không đọc được lựa chọn từ trang /tim-truyen.
@@ -164,36 +165,15 @@ export class NetTruyen implements SearchResultsProviding, MangaProviding, Chapte
     }
 
     async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
-        const domain = await this.site.load()
-        const sections = HOME_SECTIONS.map(info => App.createHomeSection({
-            id: info.id,
-            title: info.title,
-            type: info.type,
-            containsMoreItems: true
-        }))
-        sections.forEach(section => sectionCallback(section))
-
-        // Mỗi mục tải riêng: một mục lỗi không làm hỏng cả trang chủ.
-        await Promise.all(HOME_SECTIONS.map(async (info, index) => {
-            const section = sections[index]!
-            try {
-                const url = domain + info.path
-                const $ = await this.loadPage(url)
-                section.items = parseMangaList($, domain)
-                section.containsMoreItems = parseNextPageUrl($, url, PAGER_SELECTOR) !== undefined
-            } catch (error) {
-                console.log(`NetTruyen: lỗi tải mục ${info.id}: ${error}`)
-                section.items = []
-                section.containsMoreItems = false
-            }
-            sectionCallback(section)
-        }))
+        await loadHomeSections(HOME_SECTIONS, await this.site.load(), sectionCallback, urls => this.loadFirstList(urls), 'NetTruyen')
     }
 
     async getViewMoreItems(homepageSectionId: string, metadata: ListMetadata | undefined): Promise<PagedResults> {
         const info = HOME_SECTIONS.find(section => section.id === homepageSectionId)
         if (!info) return App.createPagedResults({ results: [] })
-        return this.getListPage(metadata?.nextUrl ?? (await this.site.load()) + info.path)
+        const domain = await this.site.load()
+        const urls = metadata?.nextUrl ? [metadata.nextUrl] : info.paths.map(path => domain + path)
+        return toPagedResults(await this.loadFirstList(urls))
     }
 
     async getSearchTags(): Promise<TagSection[]> {
@@ -213,13 +193,13 @@ export class NetTruyen implements SearchResultsProviding, MangaProviding, Chapte
     }
 
     async getSearchResults(query: SearchRequest, metadata: ListMetadata | undefined): Promise<PagedResults> {
-        if (metadata?.nextUrl) return this.getListPage(metadata.nextUrl)
+        if (metadata?.nextUrl) return toPagedResults(await this.loadListPage(metadata.nextUrl))
 
         const domain = await this.site.load()
         const title = query.title?.trim()
         if (title) {
             // Tìm theo tên: web không lọc kết hợp với thể loại/tình trạng.
-            return this.getListPage(`${domain}/tim-truyen?keyword=${encodeURIComponent(title)}`)
+            return toPagedResults(await this.loadListPage(`${domain}/tim-truyen?keyword=${encodeURIComponent(title)}`))
         }
 
         // Web chỉ lọc một thể loại mỗi lần; id thể loại là path, ví dụ '/tim-truyen/action-95'.
@@ -230,16 +210,20 @@ export class NetTruyen implements SearchResultsProviding, MangaProviding, Chapte
         if (status !== undefined) params.push(`status=${encodeURIComponent(status)}`)
         if (sort !== undefined) params.push(`sort=${encodeURIComponent(sort)}`)
         const base = genre ? absoluteUrl(genre.id, domain) : `${domain}/tim-truyen`
-        return this.getListPage(params.length > 0 ? `${base}?${params.join('&')}` : base)
+        return toPagedResults(await this.loadListPage(params.length > 0 ? `${base}?${params.join('&')}` : base))
     }
 
-    private async getListPage(url: string): Promise<PagedResults> {
+    private async loadFirstList(urls: string[]): Promise<ListPage> {
+        return firstListWithItems(urls, url => this.loadListPage(url))
+    }
+
+    private async loadListPage(url: string): Promise<ListPage> {
         const $ = await this.loadPage(url)
         const nextUrl = parseNextPageUrl($, url, PAGER_SELECTOR)
-        return App.createPagedResults({
+        return {
             results: parseMangaList($, await this.site.load()),
-            metadata: nextUrl && nextUrl !== url ? { nextUrl } : undefined
-        })
+            nextUrl: nextUrl !== url ? nextUrl : undefined
+        }
     }
 
     private async loadPage(url: string): Promise<CheerioAPI> {

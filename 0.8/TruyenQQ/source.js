@@ -838,6 +838,9 @@ var _Sources = (() => {
     });
     return tags;
   }
+  function isAdultContent(tags) {
+    return tags.some((tag) => /\b(adult|smut|hentai)\b|18\s*\+/i.test(tag.label));
+  }
   function genreSection(tags) {
     return tags.length > 0 ? [App.createTagSection({ id: "genres", label: "Th\u1EC3 lo\u1EA1i", tags })] : [];
   }
@@ -882,6 +885,58 @@ var _Sources = (() => {
   }
   function genreTags(tags) {
     return (tags ?? []).filter((tag) => tag.id.startsWith("/"));
+  }
+
+  // shared/lists.ts
+  function toPagedResults(page) {
+    return App.createPagedResults({
+      results: page.results,
+      metadata: page.nextUrl ? { nextUrl: page.nextUrl } : void 0
+    });
+  }
+  async function firstListWithItems(urls, loadList) {
+    let lastError;
+    let loaded = false;
+    for (const url of urls) {
+      try {
+        const page = await loadList(url);
+        loaded = true;
+        if (page.results.length > 0) return page;
+      } catch (error) {
+        if (isCloudflareError(error)) throw error;
+        lastError = error;
+      }
+    }
+    if (!loaded && lastError) throw lastError;
+    return { results: [] };
+  }
+  function describeError(error) {
+    if (isCloudflareError(error)) return "c\u1EA7n Cloudflare Bypass";
+    const status = error instanceof Error ? error.message.match(/HTTP (\d{3})/)?.[1] : void 0;
+    return status ? `l\u1ED7i HTTP ${status}` : "l\u1ED7i t\u1EA3i";
+  }
+  async function loadHomeSections(infos, domain, sectionCallback, loadFirstList, sourceName) {
+    for (const info of infos) {
+      sectionCallback(App.createHomeSection({ id: info.id, title: info.title, type: info.type, containsMoreItems: true }));
+    }
+    await Promise.all(infos.map(async (info) => {
+      let title = info.title;
+      let page = { results: [] };
+      try {
+        page = await loadFirstList(info.paths.map((path) => domain + path));
+        if (page.results.length === 0) title = `${info.title} (kh\xF4ng c\xF3 truy\u1EC7n)`;
+      } catch (error) {
+        console.log(`${sourceName}: l\u1ED7i t\u1EA3i m\u1EE5c ${info.id}: ${error}`);
+        title = `${info.title} (${describeError(error)})`;
+      }
+      sectionCallback(App.createHomeSection({
+        id: info.id,
+        title,
+        type: info.type,
+        items: page.results,
+        containsMoreItems: page.nextUrl !== void 0
+      }));
+    }));
   }
 
   // shared/settings.ts
@@ -1037,7 +1092,7 @@ var _Sources = (() => {
         artist: author || "\u0110ang c\u1EADp nh\u1EADt",
         desc: desc || "Kh\xF4ng c\xF3 m\xF4 t\u1EA3",
         status: mapStatus(status),
-        hentai: false,
+        hentai: isAdultContent(tags),
         tags: genreSection(tags)
       })
     });
@@ -1078,7 +1133,7 @@ var _Sources = (() => {
   // src/TruyenQQ/TruyenQQ.ts
   var DEFAULT_DOMAIN = "https://truyenqqko.com";
   var TruyenQQInfo = {
-    version: "1.3.0",
+    version: "1.3.1",
     name: "TruyenQQ",
     icon: "icon.png",
     author: "trungtoan46",
@@ -1170,34 +1225,14 @@ var _Sources = (() => {
       return parseChapterDetails($, mangaId, chapterId, domain);
     }
     async getHomePageSections(sectionCallback) {
-      const domain = await this.site.load();
-      const sections = HOME_SECTIONS.map((info) => App.createHomeSection({
-        id: info.id,
-        title: info.title,
-        type: info.type,
-        containsMoreItems: true
-      }));
-      sections.forEach((section) => sectionCallback(section));
-      await Promise.all(HOME_SECTIONS.map(async (info, index) => {
-        const section = sections[index];
-        try {
-          const page = await this.loadFirstList(info.paths.map((path) => domain + path));
-          section.items = page.results;
-          section.containsMoreItems = page.nextUrl !== void 0;
-        } catch (error) {
-          console.log(`TruyenQQ: l\u1ED7i t\u1EA3i m\u1EE5c ${info.id}: ${error}`);
-          section.items = [];
-          section.containsMoreItems = false;
-        }
-        sectionCallback(section);
-      }));
+      await loadHomeSections(HOME_SECTIONS, await this.site.load(), sectionCallback, (urls) => this.loadFirstList(urls), "TruyenQQ");
     }
     async getViewMoreItems(homepageSectionId, metadata) {
       const info = HOME_SECTIONS.find((section) => section.id === homepageSectionId);
       if (!info) return App.createPagedResults({ results: [] });
       const domain = await this.site.load();
       const urls = metadata?.nextUrl ? [metadata.nextUrl] : info.paths.map((path) => domain + path);
-      return this.toPagedResults(await this.loadFirstList(urls));
+      return toPagedResults(await this.loadFirstList(urls));
     }
     async getSearchTags() {
       const domain = await this.site.load();
@@ -1217,12 +1252,12 @@ var _Sources = (() => {
       return true;
     }
     async getSearchResults(query, metadata) {
-      if (metadata?.nextUrl) return this.toPagedResults(await this.loadFirstList([metadata.nextUrl]));
+      if (metadata?.nextUrl) return toPagedResults(await this.loadFirstList([metadata.nextUrl]));
       const domain = await this.site.load();
       const title = query.title?.trim();
       if (title) {
         const q = encodeURIComponent(title);
-        return this.toPagedResults(await this.loadFirstList([`${domain}/tim-kiem?q=${q}`, `${domain}/tim-kiem.html?q=${q}`]));
+        return toPagedResults(await this.loadFirstList([`${domain}/tim-kiem?q=${q}`, `${domain}/tim-kiem.html?q=${q}`]));
       }
       const included = genreTags(query.includedTags);
       const excluded = genreTags(query.excludedTags);
@@ -1244,32 +1279,16 @@ var _Sources = (() => {
       } else {
         urls = LATEST_PATHS.map((path) => domain + path);
       }
-      return this.toPagedResults(await this.loadFirstList(urls));
+      return toPagedResults(await this.loadFirstList(urls));
     }
-    toPagedResults(page) {
-      return App.createPagedResults({
-        results: page.results,
-        metadata: page.nextUrl ? { nextUrl: page.nextUrl } : void 0
-      });
-    }
-    /** Thử lần lượt từng URL, trả về trang đầu tiên có truyện. Lỗi Cloudflare báo ngay. */
     async loadFirstList(urls) {
-      let lastError;
+      return firstListWithItems(urls, (url) => this.loadListPage(url));
+    }
+    async loadListPage(url) {
       const domain = await this.site.load();
-      for (const url of urls) {
-        try {
-          const $ = await this.loadPage(url);
-          const results = parseMangaList($, domain);
-          if (results.length === 0) continue;
-          const nextUrl = $(PAGER_SELECTOR).length > 0 ? parseNextPageUrl($, url, PAGER_SELECTOR) : parseNextPageByNumber($, url, domain);
-          return { results, nextUrl: nextUrl !== url ? nextUrl : void 0 };
-        } catch (error) {
-          if (isCloudflareError(error)) throw error;
-          lastError = error;
-        }
-      }
-      if (lastError) throw lastError;
-      return { results: [] };
+      const $ = await this.loadPage(url);
+      const nextUrl = $(PAGER_SELECTOR).length > 0 ? parseNextPageUrl($, url, PAGER_SELECTOR) : parseNextPageByNumber($, url, domain);
+      return { results: parseMangaList($, domain), nextUrl: nextUrl !== url ? nextUrl : void 0 };
     }
     /** Trang đầu tiên tải được (không lỗi HTTP) trong danh sách URL. */
     async loadFirstPage(urls) {

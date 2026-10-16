@@ -138,6 +138,11 @@ export function parseTagLinks($: CheerioAPI, selector: string, pathMarker: strin
     return tags
 }
 
+/** Truyện có thể loại người lớn (Adult, Smut, Hentai, 18+) được đánh dấu 18+ trong Paperback. */
+export function isAdultContent(tags: Tag[]): boolean {
+    return tags.some(tag => /\b(adult|smut|hentai)\b|18\s*\+/i.test(tag.label))
+}
+
 export function genreSection(tags: Tag[]): TagSection[] {
     return tags.length > 0 ? [App.createTagSection({ id: 'genres', label: 'Thể loại', tags })] : []
 }

@@ -13,7 +13,7 @@ const fixture = name => fs.readFileSync(path.join(__dirname, 'fixtures', name), 
 const eq = (actual, expected) => assert.deepStrictEqual(JSON.parse(JSON.stringify(actual)), expected)
 
 /** Nạp 0.8/<id>/source.js như app (script thường, không có require/module/exports). */
-function loadSource(id, routes) {
+function loadSource(id, routes, { quiet = false } = {}) {
     const requested = []
     const passThrough = defaults => info => ({ ...defaults, ...info })
     const App = {
@@ -24,8 +24,9 @@ function loadSource(id, routes) {
             schedule: async request => {
                 const intercepted = await info.interceptor.interceptRequest(request)
                 requested.push(intercepted)
-                const data = routes[intercepted.url]
-                const response = { data: data ?? 'not found', status: data ? 200 : 404, headers: {}, request: intercepted }
+                const route = routes[intercepted.url] ?? { status: 404, data: 'not found' }
+                const { status, data } = typeof route === 'string' ? { status: 200, data: route } : route
+                const response = { data, status, headers: {}, request: intercepted }
                 return info.interceptor.interceptResponse(response)
             }
         }),
@@ -52,7 +53,7 @@ function loadSource(id, routes) {
     }
 
     const code = fs.readFileSync(path.join(root, '0.8', id, 'source.js'), 'utf8')
-    const context = vm.createContext({ App, console })
+    const context = vm.createContext({ App, console: quiet ? { log() { } } : console })
     vm.runInContext(code, context)
     const Sources = context.Sources
     assert.ok(Sources, `${id}: source.js phải gán biến toàn cục Sources`)
@@ -163,6 +164,7 @@ async function testTruyenQQ() {
     assert.strictEqual(manga.mangaInfo.status, 'Ongoing')
     assert.strictEqual(manga.mangaInfo.desc, 'Hành trình của Luffy.')
     eq(manga.mangaInfo.tags[0].tags.map(t => t.label), ['Action', 'Adventure'])
+    assert.strictEqual(manga.mangaInfo.hentai, false)
     assert.strictEqual(source.getMangaShareUrl('dao-hai-tac-128'), `${D}/truyen-tranh/dao-hai-tac-128`)
 
     // Danh sách chương
@@ -208,11 +210,11 @@ async function testNetTruyen() {
     const D = 'https://nettruyen.gg'
     const f = name => fixture(`nettruyen/${name}`)
     const { source, requested } = loadSource('NetTruyen', {
-        [`${D}/tim-truyen?status=-1&sort=0`]: f('home.html'),
-        [`${D}/tim-truyen?status=-1&sort=0&page=2`]: f('last-page.html'),
+        [`${D}/tim-truyen`]: f('tim-truyen.html'),
+        [`${D}/tim-truyen?page=2`]: f('last-page.html'),
+        // '/tim-truyen?sort=11' không có (404) -> dùng URL dự phòng
         [`${D}/tim-truyen?status=-1&sort=11`]: f('hot.html'),
         [`${D}/tim-truyen?status=2`]: f('last-page.html'),
-        [`${D}/tim-truyen`]: f('genres.html'),
         [`${D}/tim-truyen?keyword=one%20piece`]: f('home.html'),
         [`${D}/tim-truyen/action-95`]: f('last-page.html'),
         [`${D}/truyen-tranh/one-piece`]: f('manga.html'),
@@ -232,6 +234,7 @@ async function testNetTruyen() {
         { mangaId: 'van-co-chi-ton', title: 'Vạn Cổ Chí Tôn', image: 'https://img.test/vcct.jpg' }
     ])
     assert.strictEqual(latest.containsMoreItems, true)
+    eq([...sections.values()].map(section => section.title), ['Mới cập nhật', 'Top tháng', 'Hoàn thành'])
     assert.strictEqual(sections.get('hot').items[0].image, `${D}/hot-1.jpg`)
     assert.strictEqual(sections.get('hot').containsMoreItems, true)
     assert.strictEqual(sections.get('completed').containsMoreItems, false)
@@ -239,7 +242,7 @@ async function testNetTruyen() {
 
     // Phân trang: link tuyệt đối và link chỉ có query ('?page=2')
     const latest1 = await source.getViewMoreItems('latest', undefined)
-    eq(latest1.metadata, { nextUrl: `${D}/tim-truyen?status=-1&sort=0&page=2` })
+    eq(latest1.metadata, { nextUrl: `${D}/tim-truyen?page=2` })
     const latest2 = await source.getViewMoreItems('latest', latest1.metadata)
     assert.strictEqual(latest2.results[0].mangaId, 'cuoi-cung')
     assert.strictEqual(latest2.metadata, undefined)
@@ -301,6 +304,25 @@ async function testNetTruyen() {
 
     await assert.rejects(source.getMangaDetails('khong-co'), /HTTP 404/)
     assert.strictEqual((await source.getCloudflareBypassRequestAsync()).url, D)
+
+    // Truyện có thể loại người lớn được đánh dấu 18+
+    assert.strictEqual(manga.mangaInfo.hentai, false)
+    assert.strictEqual(unknownAuthor.mangaInfo.hentai, true)
+
+    // Mục trang chủ lỗi/trống ghi lý do trên tiêu đề
+    const broken = loadSource('NetTruyen', {
+        [`${D}/tim-truyen`]: '<html><body>Không có truyện</body></html>',
+        [`${D}/tim-truyen?sort=0`]: '<html></html>',
+        [`${D}/`]: '<html></html>',
+        [`${D}/tim-truyen?sort=11`]: { status: 503, data: 'Just a moment...' }
+    }, { quiet: true }).source
+    const brokenSections = await homeSections(broken)
+    eq([...brokenSections.values()].map(section => section.title), [
+        'Mới cập nhật (không có truyện)',
+        'Top tháng (cần Cloudflare Bypass)',
+        'Hoàn thành (lỗi HTTP 404)'
+    ])
+    eq([...brokenSections.values()].map(section => section.items.length), [0, 0, 0])
 
     // Cài đặt tên miền
     const settings = await openSettings(source)

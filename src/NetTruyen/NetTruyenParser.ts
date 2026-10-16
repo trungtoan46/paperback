@@ -9,6 +9,7 @@ import {
     cleanText,
     genreSection,
     imageFrom,
+    isAdultContent,
     mapStatus,
     parseChapterNumber,
     parseTagLinks,
@@ -81,7 +82,7 @@ export function parseMangaDetails($: CheerioAPI, mangaId: string, domain: string
             artist: author || 'Đang cập nhật',
             desc: desc || 'Không có mô tả',
             status: mapStatus(status),
-            hentai: false,
+            hentai: isAdultContent(tags),
             tags: genreSection(tags)
         })
     })

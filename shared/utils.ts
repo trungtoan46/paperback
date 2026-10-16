@@ -45,12 +45,23 @@ export function chapterTitle(name: string): string | undefined {
     return !text || /^(chương|chapter|chap|ch\.?)\s*\d+(?:[.,]\d+)?$/i.test(text) ? undefined : text
 }
 
-/** Chữ của một khối, mỗi đoạn <p> một dòng (text() dính các đoạn vào nhau). */
+// Ký tự riêng (vùng Private Use) đánh dấu chỗ xuống dòng của <br> trước khi gom khoảng trắng.
+const LINE_BREAK = '\uE000'
+
+/**
+ * Chữ của một khối giữ xuống dòng như trên web: mỗi đoạn <p> và mỗi <br> một dòng
+ * (text() dính các đoạn vào nhau; dấu xuống dòng trong mã HTML thì không tính).
+ */
 export function blockText($: CheerioAPI, $element: Cheerio<AnyNode>): string {
-    const paragraphs = $element.find('p').toArray()
-        .map(paragraph => cleanText($(paragraph).text()))
-        .filter(text => text.length > 0)
-    return paragraphs.length > 0 ? paragraphs.join('\n') : cleanText($element.text())
+    const $copy = $element.clone()
+    $copy.find('br').replaceWith(LINE_BREAK)
+    const $paragraphs = $copy.find('p')
+    const blocks = $paragraphs.length > 0 ? $paragraphs.toArray().map(paragraph => $(paragraph).text()) : [$copy.text()]
+    return blocks
+        .flatMap(block => block.split(LINE_BREAK))
+        .map(line => cleanText(line))
+        .filter(line => line.length > 0)
+        .join('\n')
 }
 
 /** Đổi '5 phút trước', '2 giờ trước', '16/10/2026', '16/10/26', '12:30 16/10', '2026-10-16 08:30:00' sang Date. */

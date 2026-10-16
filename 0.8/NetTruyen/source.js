@@ -764,9 +764,13 @@ var _Sources = (() => {
     const text = cleanText(name);
     return !text || /^(chương|chapter|chap|ch\.?)\s*\d+(?:[.,]\d+)?$/i.test(text) ? void 0 : text;
   }
+  var LINE_BREAK = "\uE000";
   function blockText($, $element) {
-    const paragraphs = $element.find("p").toArray().map((paragraph) => cleanText($(paragraph).text())).filter((text) => text.length > 0);
-    return paragraphs.length > 0 ? paragraphs.join("\n") : cleanText($element.text());
+    const $copy = $element.clone();
+    $copy.find("br").replaceWith(LINE_BREAK);
+    const $paragraphs = $copy.find("p");
+    const blocks = $paragraphs.length > 0 ? $paragraphs.toArray().map((paragraph) => $(paragraph).text()) : [$copy.text()];
+    return blocks.flatMap((block) => block.split(LINE_BREAK)).map((line) => cleanText(line)).filter((line) => line.length > 0).join("\n");
   }
   function parseTime(raw, now = Date.now()) {
     const text = raw.toLowerCase().trim();
@@ -1243,7 +1247,7 @@ var _Sources = (() => {
   // src/NetTruyen/NetTruyen.ts
   var DEFAULT_DOMAIN = "https://nettruyen.gg";
   var NetTruyenInfo = {
-    version: "1.1.5",
+    version: "1.1.6",
     name: "NetTruyen",
     icon: "icon.png",
     author: "trungtoan46",

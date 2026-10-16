@@ -177,7 +177,8 @@ async function testTruyenQQ() {
     eq(manga.mangaInfo.titles, ['Đảo Hải Tặc', 'One Piece', 'Vua Hải Tặc'])
     assert.strictEqual(manga.mangaInfo.author, 'Oda Eiichiro')
     assert.strictEqual(manga.mangaInfo.status, 'Ongoing')
-    assert.strictEqual(manga.mangaInfo.desc, 'Hành trình của Luffy.')
+    // Giữ xuống dòng của <p> và <br>; xuống dòng trong mã HTML thì gộp lại
+    assert.strictEqual(manga.mangaInfo.desc, 'Hành trình của Luffy.\nTên gốc: ワンピース\nTác giả: Oda Eiichiro\nThể loại: Action')
     eq(manga.mangaInfo.tags[0].tags.map(t => t.label), ['Action', 'Adventure'])
     assert.strictEqual(manga.mangaInfo.hentai, false)
     assert.strictEqual(source.getMangaShareUrl('dao-hai-tac-128'), `${D}/truyen-tranh/dao-hai-tac-128`)

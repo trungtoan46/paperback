@@ -15,8 +15,8 @@
 
 | | Nguồn | Trang web | Phiên bản |
 |:---:|---|---|:---:|
-| <img src="src/TruyenQQ/includes/icon.png" width="32"> | **TruyenQQ** | truyenqqko.com | 1.3.6 |
-| <img src="src/NetTruyen/includes/icon.png" width="32"> | **NetTruyen** | nettruyen.gg | 1.1.5 |
+| <img src="src/TruyenQQ/includes/icon.png" width="32"> | **TruyenQQ** | truyenqqko.com | 1.3.7 |
+| <img src="src/NetTruyen/includes/icon.png" width="32"> | **NetTruyen** | nettruyen.gg | 1.1.6 |
 | <img src="src/GocTruyenTranhVui/includes/icon.png" width="32"> | **Góc Truyện Tranh Vui** | goctruyentranhvui31.com | 1.0.2 |
 
 > [!NOTE]

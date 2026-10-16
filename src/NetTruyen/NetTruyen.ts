@@ -41,7 +41,7 @@ import {
 const DOMAIN = 'https://nettruyen.gg'
 
 export const NetTruyenInfo: SourceInfo = {
-    version: '1.0.1',
+    version: '1.0.2',
     name: 'NetTruyen',
     icon: 'icon.png',
     author: 'trungtoan46',

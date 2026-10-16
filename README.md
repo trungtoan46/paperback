@@ -4,8 +4,8 @@ Nguồn đọc truyện cho app Paperback (iOS), API 0.8:
 
 | Nguồn | Web | Version |
 |---|---|---|
-| TruyenQQ | https://truyenqqko.com | 1.2.1 |
-| NetTruyen | https://nettruyen.gg | 1.0.1 |
+| TruyenQQ | https://truyenqqko.com | 1.2.2 |
+| NetTruyen | https://nettruyen.gg | 1.0.2 |
 
 Mỗi nguồn có: trang chủ, tìm theo tên, lọc theo một thể loại, chi tiết truyện,
 danh sách chương, đọc chương, Cloudflare bypass.

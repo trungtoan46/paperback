@@ -829,7 +829,7 @@ var _Sources = (() => {
     const seen = /* @__PURE__ */ new Set();
     $(selector).each((_, element) => {
       const href = $(element).attr("href");
-      const label = cleanText($(element).text());
+      const label = cleanText($(element).text()).replace(/\s*[>›»]+$/, "");
       if (!href || !label || !href.includes(pathMarker)) return;
       const id = toPath(href);
       if (seen.has(id) || segmentsAfter(id, pathMarker) === void 0) return;
@@ -841,8 +841,11 @@ var _Sources = (() => {
   function genreSection(tags) {
     return tags.length > 0 ? [App.createTagSection({ id: "genres", label: "Th\u1EC3 lo\u1EA1i", tags })] : [];
   }
+  var CLOUDFLARE_ERROR = "CloudflareError";
   function cloudflareError(status, sourceName) {
-    return new Error(`Cloudflare ch\u1EB7n (HTTP ${status}). V\xE0o c\xE0i \u0111\u1EB7t ngu\u1ED3n ${sourceName} v\xE0 b\u1EA5m "Cloudflare Bypass", sau \u0111\xF3 th\u1EED l\u1EA1i.`);
+    const error = new Error(`Cloudflare ch\u1EB7n (HTTP ${status}). V\xE0o c\xE0i \u0111\u1EB7t ngu\u1ED3n ${sourceName} v\xE0 b\u1EA5m "Cloudflare Bypass", sau \u0111\xF3 th\u1EED l\u1EA1i.`);
+    error.name = CLOUDFLARE_ERROR;
+    return error;
   }
 
   // src/NetTruyen/NetTruyenParser.ts
@@ -965,7 +968,7 @@ var _Sources = (() => {
   // src/NetTruyen/NetTruyen.ts
   var DOMAIN = "https://nettruyen.gg";
   var NetTruyenInfo = {
-    version: "1.0.1",
+    version: "1.0.2",
     name: "NetTruyen",
     icon: "icon.png",
     author: "trungtoan46",

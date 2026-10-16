@@ -65,12 +65,14 @@ async function testTruyenQQ() {
     const f = name => fixture(`truyenqq/${name}`)
     const { source, requested } = loadSource('TruyenQQ', {
         [D]: f('list.html'),
-        [`${D}/truyen-moi-cap-nhat/trang-1.html`]: f('list.html'),
-        [`${D}/truyen-moi-cap-nhat/trang-2.html`]: f('last-page.html'),
+        [`${D}/truyen-moi-cap-nhat/trang-1`]: f('list.html'),
+        [`${D}/truyen-moi-cap-nhat/trang-2`]: f('last-page.html'),
+        // '/truyen-yeu-thich/trang-1' không có (404) -> dùng URL dự phòng có '.html'
         [`${D}/truyen-yeu-thich/trang-1.html`]: f('last-page.html'),
-        [`${D}/tim-kiem.html?q=h%E1%BA%A3i%20t%E1%BA%B7c`]: f('list.html'),
-        [`${D}/the-loai/action-26.html`]: f('last-page.html'),
+        [`${D}/tim-kiem?q=h%E1%BA%A3i%20t%E1%BA%B7c`]: f('list.html'),
+        [`${D}/the-loai/action-26`]: f('generic-list.html'),
         [`${D}/truyen-tranh/dao-hai-tac-128`]: f('manga.html'),
+        [`${D}/truyen-tranh/dao-hai-tac-128-chap-1100`]: f('chapter.html'),
         [`${D}/truyen-tranh/dao-hai-tac-128-chap-1100.html`]: f('chapter.html')
     })
 
@@ -86,26 +88,35 @@ async function testTruyenQQ() {
     })
     assert.strictEqual(latest.items[1].title, 'Thám Tử Lừng Danh Conan')
     assert.strictEqual(latest.containsMoreItems, true)
-    assert.strictEqual(sections.get('favorite').containsMoreItems, false)
+    const favorite = sections.get('favorite')
+    assert.strictEqual(favorite.items[0].mangaId, 'xyz-9')
+    assert.strictEqual(favorite.containsMoreItems, false)
     assert.strictEqual(requested[0].headers.referer, `${D}/`)
     assert.strictEqual(requested[0].headers['user-agent'], 'TestAgent/1.0')
 
     // Xem thêm: trang 1 -> trang 2 (trang cuối)
     const more1 = await source.getViewMoreItems('latest', undefined)
-    eq(more1.metadata, { nextUrl: `${D}/truyen-moi-cap-nhat/trang-2.html` })
+    eq(more1.metadata, { nextUrl: `${D}/truyen-moi-cap-nhat/trang-2` })
     const more2 = await source.getViewMoreItems('latest', more1.metadata)
     assert.strictEqual(more2.results[0].mangaId, 'xyz-9')
     assert.strictEqual(more2.results[0].image, `${D}/a.jpg`)
     assert.strictEqual(more2.metadata, undefined)
 
-    // Tìm kiếm theo tên, thể loại, và danh sách thể loại
+    // Tìm kiếm theo tên; thể loại (nhãn bỏ mũi tên '>'); danh sách giao diện lạ dùng bộ đọc dự phòng
     const search = await source.getSearchResults(query({ title: 'hải tặc' }), undefined)
     assert.strictEqual(search.results.length, 2)
-    assert.ok(search.metadata.nextUrl.endsWith('trang-2.html'))
+    eq(search.metadata, { nextUrl: `${D}/truyen-moi-cap-nhat/trang-2` })
     const tags = await source.getSearchTags()
-    eq(tags[0].tags.map(t => t.id), ['/the-loai/action-26.html', '/the-loai/romance-36.html'])
+    eq(tags[0].tags, [
+        { id: '/the-loai/action-26', label: 'Action' },
+        { id: '/the-loai/romance-36', label: 'Romance' }
+    ])
     const byGenre = await source.getSearchResults(query({ includedTags: [tags[0].tags[0]] }), undefined)
-    assert.strictEqual(byGenre.results[0].mangaId, 'xyz-9')
+    eq(byGenre.results, [
+        { mangaId: 'abc-1', title: 'ABC Truyện', image: `${D}/covers/abc.jpg` },
+        { mangaId: 'xyz-2', title: 'XYZ title', image: 'https://img.test/xyz.jpg' }
+    ])
+    eq(byGenre.metadata, { nextUrl: `${D}/the-loai/action-26/trang-2` })
 
     // Chi tiết truyện
     const manga = await source.getMangaDetails('dao-hai-tac-128')
@@ -120,7 +131,7 @@ async function testTruyenQQ() {
     const chapters = await source.getChapters('dao-hai-tac-128')
     eq(chapters.map(c => c.chapNum), [1100, 1099.5, 1])
     eq(chapters.map(c => c.sortingIndex), [0, -1, -2])
-    assert.strictEqual(chapters[0].id, '/truyen-tranh/dao-hai-tac-128-chap-1100.html')
+    assert.strictEqual(chapters[0].id, '/truyen-tranh/dao-hai-tac-128-chap-1100')
     assert.strictEqual(chapters[0].name, 'Chương 1100')
     assert.ok(Date.now() - chapters[0].time.getTime() >= 2 * 3600 * 1000 - 1000)
     assert.strictEqual(chapters[1].time.getFullYear(), 2026)

@@ -11,6 +11,7 @@ import {
     HomeSectionType,
     MangaProviding,
     PagedResults,
+    PartialSourceManga,
     Request,
     Response,
     SearchRequest,
@@ -24,12 +25,14 @@ import {
     absoluteUrl,
     cloudflareError,
     genreSection,
+    isCloudflareError,
     parseNextPageUrl,
     parseTagLinks,
     toPath
 } from '../../shared/utils'
 import {
     PAGER_SELECTOR,
+    parseNextPageByNumber,
     parseChapterDetails,
     parseChapters,
     parseMangaDetails,
@@ -40,7 +43,7 @@ import {
 const DOMAIN = 'https://truyenqqko.com'
 
 export const TruyenQQInfo: SourceInfo = {
-    version: '1.2.1',
+    version: '1.2.2',
     name: 'TruyenQQ',
     icon: 'icon.png',
     author: 'trungtoan46',
@@ -60,9 +63,16 @@ interface ListMetadata {
     nextUrl?: string
 }
 
+interface ListPage {
+    results: PartialSourceManga[]
+    nextUrl?: string
+}
+
+// Web đã bỏ đuôi '.html' (truyenqqko.com); giữ URL cũ làm dự phòng, thử lần lượt tới khi có truyện.
+const LATEST_PATHS = ['/truyen-moi-cap-nhat/trang-1', '/truyen-moi-cap-nhat/trang-1.html', '/']
 const HOME_SECTIONS = [
-    { id: 'latest', title: 'Mới cập nhật', path: '/truyen-moi-cap-nhat/trang-1.html', type: HomeSectionType.singleRowNormal },
-    { id: 'favorite', title: 'Yêu thích', path: '/truyen-yeu-thich/trang-1.html', type: HomeSectionType.singleRowNormal }
+    { id: 'latest', title: 'Mới cập nhật', paths: LATEST_PATHS, type: HomeSectionType.singleRowNormal },
+    { id: 'favorite', title: 'Yêu thích', paths: ['/truyen-yeu-thich/trang-1', '/truyen-yeu-thich/trang-1.html'], type: HomeSectionType.singleRowNormal }
 ]
 
 export class TruyenQQ implements SearchResultsProviding, MangaProviding, ChapterProviding,
@@ -132,10 +142,9 @@ export class TruyenQQ implements SearchResultsProviding, MangaProviding, Chapter
         await Promise.all(HOME_SECTIONS.map(async (info, index) => {
             const section = sections[index]!
             try {
-                const url = DOMAIN + info.path
-                const $ = await this.loadPage(url)
-                section.items = parseMangaList($, DOMAIN)
-                section.containsMoreItems = parseNextPageUrl($, url, PAGER_SELECTOR) !== undefined
+                const page = await this.loadFirstList(info.paths.map(path => DOMAIN + path))
+                section.items = page.results
+                section.containsMoreItems = page.nextUrl !== undefined
             } catch (error) {
                 console.log(`TruyenQQ: lỗi tải mục ${info.id}: ${error}`)
                 section.items = []
@@ -148,7 +157,8 @@ export class TruyenQQ implements SearchResultsProviding, MangaProviding, Chapter
     async getViewMoreItems(homepageSectionId: string, metadata: ListMetadata | undefined): Promise<PagedResults> {
         const info = HOME_SECTIONS.find(section => section.id === homepageSectionId)
         if (!info) return App.createPagedResults({ results: [] })
-        return this.getListPage(metadata?.nextUrl ?? DOMAIN + info.path)
+        const urls = metadata?.nextUrl ? [metadata.nextUrl] : info.paths.map(path => DOMAIN + path)
+        return this.toPagedResults(await this.loadFirstList(urls))
     }
 
     async getSearchTags(): Promise<TagSection[]> {
@@ -161,28 +171,49 @@ export class TruyenQQ implements SearchResultsProviding, MangaProviding, Chapter
     }
 
     async getSearchResults(query: SearchRequest, metadata: ListMetadata | undefined): Promise<PagedResults> {
-        if (metadata?.nextUrl) return this.getListPage(metadata.nextUrl)
-
+        let urls: string[]
         const title = query.title?.trim()
-        let url: string
-        if (title) {
-            url = `${DOMAIN}/tim-kiem.html?q=${encodeURIComponent(title)}`
+        if (metadata?.nextUrl) {
+            urls = [metadata.nextUrl]
+        } else if (title) {
+            const q = encodeURIComponent(title)
+            urls = [`${DOMAIN}/tim-kiem?q=${q}`, `${DOMAIN}/tim-kiem.html?q=${q}`]
         } else if (query.includedTags && query.includedTags.length > 0) {
-            // Web chỉ lọc một thể loại mỗi lần; id thể loại là path, ví dụ '/the-loai/action-26.html'.
-            url = absoluteUrl(query.includedTags[0]!.id, DOMAIN)
+            // Web chỉ lọc một thể loại mỗi lần; id thể loại là path, ví dụ '/the-loai/action-26'.
+            urls = [absoluteUrl(query.includedTags[0]!.id, DOMAIN)]
         } else {
-            url = `${DOMAIN}/truyen-moi-cap-nhat/trang-1.html`
+            urls = LATEST_PATHS.map(path => DOMAIN + path)
         }
-        return this.getListPage(url)
+        return this.toPagedResults(await this.loadFirstList(urls))
     }
 
-    private async getListPage(url: string): Promise<PagedResults> {
-        const $ = await this.loadPage(url)
-        const nextUrl = parseNextPageUrl($, url, PAGER_SELECTOR)
+    private toPagedResults(page: ListPage): PagedResults {
         return App.createPagedResults({
-            results: parseMangaList($, DOMAIN),
-            metadata: nextUrl && nextUrl !== url ? { nextUrl } : undefined
+            results: page.results,
+            metadata: page.nextUrl ? { nextUrl: page.nextUrl } : undefined
         })
+    }
+
+    /** Thử lần lượt từng URL, trả về trang đầu tiên có truyện. Lỗi Cloudflare báo ngay. */
+    private async loadFirstList(urls: string[]): Promise<ListPage> {
+        let lastError: unknown
+        for (const url of urls) {
+            try {
+                const $ = await this.loadPage(url)
+                const results = parseMangaList($, DOMAIN)
+                if (results.length === 0) continue
+                // Chỉ đoán theo số trang khi không có thanh phân trang quen thuộc.
+                const nextUrl = $(PAGER_SELECTOR).length > 0
+                    ? parseNextPageUrl($, url, PAGER_SELECTOR)
+                    : parseNextPageByNumber($, url, DOMAIN)
+                return { results, nextUrl: nextUrl !== url ? nextUrl : undefined }
+            } catch (error) {
+                if (isCloudflareError(error)) throw error
+                lastError = error
+            }
+        }
+        if (lastError) throw lastError
+        return { results: [] }
     }
 
     private async loadPage(url: string): Promise<CheerioAPI> {

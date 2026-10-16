@@ -6,6 +6,7 @@ import {
     SourceManga
 } from '@paperback/types'
 import {
+    absoluteUrl,
     cleanText,
     genreSection,
     imageFrom,
@@ -28,6 +29,11 @@ export function mangaIdFromHref(href: string | undefined): string | undefined {
 
 /** Danh sách truyện dạng lưới (trang chủ, mới cập nhật, tìm kiếm, thể loại). */
 export function parseMangaList($: CheerioAPI, domain: string): PartialSourceManga[] {
+    const results = parseGridList($, domain)
+    return results.length > 0 ? results : parseLinkedCovers($, domain)
+}
+
+function parseGridList($: CheerioAPI, domain: string): PartialSourceManga[] {
     const results: PartialSourceManga[] = []
     const seen = new Set<string>()
     $('ul.list_grid > li, ul.grid > li, .list_grid li').each((_, element) => {
@@ -54,6 +60,43 @@ export function parseMangaList($: CheerioAPI, domain: string): PartialSourceMang
         }))
     })
     return results
+}
+
+/**
+ * Dự phòng khi web đổi giao diện danh sách: lấy mọi ảnh bìa nằm trong link tới trang truyện,
+ * tên lấy từ link chữ cùng truyện, title/alt của link hoặc ảnh.
+ */
+function parseLinkedCovers($: CheerioAPI, domain: string): PartialSourceManga[] {
+    const titles = new Map<string, string>()
+    $('a[href*="/truyen-tranh/"]').each((_, a) => {
+        const mangaId = mangaIdFromHref($(a).attr('href'))
+        const text = cleanText($(a).text())
+        if (mangaId && text && !titles.has(mangaId)) titles.set(mangaId, text)
+    })
+
+    const results: PartialSourceManga[] = []
+    const seen = new Set<string>()
+    $('a[href*="/truyen-tranh/"]').each((_, a) => {
+        const $a = $(a)
+        const mangaId = mangaIdFromHref($a.attr('href'))
+        const $img = $a.find('img').first()
+        if (!mangaId || $img.length === 0 || seen.has(mangaId)) return
+        seen.add(mangaId)
+        results.push(App.createPartialSourceManga({
+            mangaId,
+            title: titles.get(mangaId) || $a.attr('title')?.trim() || $img.attr('alt')?.trim() || mangaId,
+            image: imageFrom($img, domain)
+        }))
+    })
+    return results
+}
+
+/** Dự phòng khi không đọc được thanh phân trang: tìm link tới '/trang-<n+1>'. */
+export function parseNextPageByNumber($: CheerioAPI, pageUrl: string, domain: string): string | undefined {
+    const current = parseInt(toPath(pageUrl).match(/\/trang-(\d+)(?:\.html)?$/)?.[1] ?? '1')
+    const pattern = new RegExp(`/trang-${current + 1}(?:\\.html)?(?:[?#]|$)`)
+    const next = $('a[href*="/trang-"]').filter((_, a) => pattern.test($(a).attr('href') ?? '')).first()
+    return next.length > 0 ? absoluteUrl(next.attr('href'), domain) : undefined
 }
 
 export function parseMangaDetails($: CheerioAPI, mangaId: string, domain: string): SourceManga {

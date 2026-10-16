@@ -126,7 +126,8 @@ export function parseTagLinks($: CheerioAPI, selector: string, pathMarker: strin
     const seen = new Set<string>()
     $(selector).each((_, element) => {
         const href = $(element).attr('href')
-        const label = cleanText($(element).text())
+        // Tiêu đề mục ở trang chủ có dạng 'Manhua >': bỏ mũi tên cuối.
+        const label = cleanText($(element).text()).replace(/\s*[>›»]+$/, '')
         if (!href || !label || !href.includes(pathMarker)) return
         const id = toPath(href)
         // Bỏ link tới chính trang danh sách ('/tim-truyen'), chỉ giữ trang thể loại cụ thể.
@@ -141,6 +142,14 @@ export function genreSection(tags: Tag[]): TagSection[] {
     return tags.length > 0 ? [App.createTagSection({ id: 'genres', label: 'Thể loại', tags })] : []
 }
 
+const CLOUDFLARE_ERROR = 'CloudflareError'
+
 export function cloudflareError(status: number, sourceName: string): Error {
-    return new Error(`Cloudflare chặn (HTTP ${status}). Vào cài đặt nguồn ${sourceName} và bấm "Cloudflare Bypass", sau đó thử lại.`)
+    const error = new Error(`Cloudflare chặn (HTTP ${status}). Vào cài đặt nguồn ${sourceName} và bấm "Cloudflare Bypass", sau đó thử lại.`)
+    error.name = CLOUDFLARE_ERROR
+    return error
+}
+
+export function isCloudflareError(error: unknown): boolean {
+    return error instanceof Error && error.name === CLOUDFLARE_ERROR
 }

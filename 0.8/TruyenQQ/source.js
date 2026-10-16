@@ -829,7 +829,7 @@ var _Sources = (() => {
     const seen = /* @__PURE__ */ new Set();
     $(selector).each((_, element) => {
       const href = $(element).attr("href");
-      const label = cleanText($(element).text());
+      const label = cleanText($(element).text()).replace(/\s*[>›»]+$/, "");
       if (!href || !label || !href.includes(pathMarker)) return;
       const id = toPath(href);
       if (seen.has(id) || segmentsAfter(id, pathMarker) === void 0) return;
@@ -841,8 +841,14 @@ var _Sources = (() => {
   function genreSection(tags) {
     return tags.length > 0 ? [App.createTagSection({ id: "genres", label: "Th\u1EC3 lo\u1EA1i", tags })] : [];
   }
+  var CLOUDFLARE_ERROR = "CloudflareError";
   function cloudflareError(status, sourceName) {
-    return new Error(`Cloudflare ch\u1EB7n (HTTP ${status}). V\xE0o c\xE0i \u0111\u1EB7t ngu\u1ED3n ${sourceName} v\xE0 b\u1EA5m "Cloudflare Bypass", sau \u0111\xF3 th\u1EED l\u1EA1i.`);
+    const error = new Error(`Cloudflare ch\u1EB7n (HTTP ${status}). V\xE0o c\xE0i \u0111\u1EB7t ngu\u1ED3n ${sourceName} v\xE0 b\u1EA5m "Cloudflare Bypass", sau \u0111\xF3 th\u1EED l\u1EA1i.`);
+    error.name = CLOUDFLARE_ERROR;
+    return error;
+  }
+  function isCloudflareError(error) {
+    return error instanceof Error && error.name === CLOUDFLARE_ERROR;
   }
 
   // src/TruyenQQ/TruyenQQParser.ts
@@ -853,6 +859,10 @@ var _Sources = (() => {
     return segments[0];
   }
   function parseMangaList($, domain) {
+    const results = parseGridList($, domain);
+    return results.length > 0 ? results : parseLinkedCovers($, domain);
+  }
+  function parseGridList($, domain) {
     const results = [];
     const seen = /* @__PURE__ */ new Set();
     $("ul.list_grid > li, ul.grid > li, .list_grid li").each((_, element) => {
@@ -874,6 +884,35 @@ var _Sources = (() => {
       }));
     });
     return results;
+  }
+  function parseLinkedCovers($, domain) {
+    const titles = /* @__PURE__ */ new Map();
+    $('a[href*="/truyen-tranh/"]').each((_, a) => {
+      const mangaId = mangaIdFromHref($(a).attr("href"));
+      const text = cleanText($(a).text());
+      if (mangaId && text && !titles.has(mangaId)) titles.set(mangaId, text);
+    });
+    const results = [];
+    const seen = /* @__PURE__ */ new Set();
+    $('a[href*="/truyen-tranh/"]').each((_, a) => {
+      const $a = $(a);
+      const mangaId = mangaIdFromHref($a.attr("href"));
+      const $img = $a.find("img").first();
+      if (!mangaId || $img.length === 0 || seen.has(mangaId)) return;
+      seen.add(mangaId);
+      results.push(App.createPartialSourceManga({
+        mangaId,
+        title: titles.get(mangaId) || $a.attr("title")?.trim() || $img.attr("alt")?.trim() || mangaId,
+        image: imageFrom($img, domain)
+      }));
+    });
+    return results;
+  }
+  function parseNextPageByNumber($, pageUrl, domain) {
+    const current = parseInt(toPath(pageUrl).match(/\/trang-(\d+)(?:\.html)?$/)?.[1] ?? "1");
+    const pattern = new RegExp(`/trang-${current + 1}(?:\\.html)?(?:[?#]|$)`);
+    const next = $('a[href*="/trang-"]').filter((_, a) => pattern.test($(a).attr("href") ?? "")).first();
+    return next.length > 0 ? absoluteUrl(next.attr("href"), domain) : void 0;
   }
   function parseMangaDetails($, mangaId, domain) {
     const title = cleanText($("h1[itemprop=name], .book_other h1, .book_info h1, h1").first().text()) || mangaId;
@@ -932,7 +971,7 @@ var _Sources = (() => {
   // src/TruyenQQ/TruyenQQ.ts
   var DOMAIN = "https://truyenqqko.com";
   var TruyenQQInfo = {
-    version: "1.2.1",
+    version: "1.2.2",
     name: "TruyenQQ",
     icon: "icon.png",
     author: "trungtoan46",
@@ -947,9 +986,10 @@ var _Sources = (() => {
     ],
     intents: import_types.SourceIntents.MANGA_CHAPTERS | import_types.SourceIntents.HOMEPAGE_SECTIONS | import_types.SourceIntents.CLOUDFLARE_BYPASS_REQUIRED
   };
+  var LATEST_PATHS = ["/truyen-moi-cap-nhat/trang-1", "/truyen-moi-cap-nhat/trang-1.html", "/"];
   var HOME_SECTIONS = [
-    { id: "latest", title: "M\u1EDBi c\u1EADp nh\u1EADt", path: "/truyen-moi-cap-nhat/trang-1.html", type: import_types.HomeSectionType.singleRowNormal },
-    { id: "favorite", title: "Y\xEAu th\xEDch", path: "/truyen-yeu-thich/trang-1.html", type: import_types.HomeSectionType.singleRowNormal }
+    { id: "latest", title: "M\u1EDBi c\u1EADp nh\u1EADt", paths: LATEST_PATHS, type: import_types.HomeSectionType.singleRowNormal },
+    { id: "favorite", title: "Y\xEAu th\xEDch", paths: ["/truyen-yeu-thich/trang-1", "/truyen-yeu-thich/trang-1.html"], type: import_types.HomeSectionType.singleRowNormal }
   ];
   var TruyenQQ = class {
     constructor(cheerio) {
@@ -1008,10 +1048,9 @@ var _Sources = (() => {
       await Promise.all(HOME_SECTIONS.map(async (info, index) => {
         const section = sections[index];
         try {
-          const url = DOMAIN + info.path;
-          const $ = await this.loadPage(url);
-          section.items = parseMangaList($, DOMAIN);
-          section.containsMoreItems = parseNextPageUrl($, url, PAGER_SELECTOR) !== void 0;
+          const page = await this.loadFirstList(info.paths.map((path) => DOMAIN + path));
+          section.items = page.results;
+          section.containsMoreItems = page.nextUrl !== void 0;
         } catch (error) {
           console.log(`TruyenQQ: l\u1ED7i t\u1EA3i m\u1EE5c ${info.id}: ${error}`);
           section.items = [];
@@ -1023,7 +1062,8 @@ var _Sources = (() => {
     async getViewMoreItems(homepageSectionId, metadata) {
       const info = HOME_SECTIONS.find((section) => section.id === homepageSectionId);
       if (!info) return App.createPagedResults({ results: [] });
-      return this.getListPage(metadata?.nextUrl ?? DOMAIN + info.path);
+      const urls = metadata?.nextUrl ? [metadata.nextUrl] : info.paths.map((path) => DOMAIN + path);
+      return this.toPagedResults(await this.loadFirstList(urls));
     }
     async getSearchTags() {
       const $ = await this.loadPage(DOMAIN);
@@ -1033,25 +1073,43 @@ var _Sources = (() => {
       return false;
     }
     async getSearchResults(query, metadata) {
-      if (metadata?.nextUrl) return this.getListPage(metadata.nextUrl);
+      let urls;
       const title = query.title?.trim();
-      let url;
-      if (title) {
-        url = `${DOMAIN}/tim-kiem.html?q=${encodeURIComponent(title)}`;
+      if (metadata?.nextUrl) {
+        urls = [metadata.nextUrl];
+      } else if (title) {
+        const q = encodeURIComponent(title);
+        urls = [`${DOMAIN}/tim-kiem?q=${q}`, `${DOMAIN}/tim-kiem.html?q=${q}`];
       } else if (query.includedTags && query.includedTags.length > 0) {
-        url = absoluteUrl(query.includedTags[0].id, DOMAIN);
+        urls = [absoluteUrl(query.includedTags[0].id, DOMAIN)];
       } else {
-        url = `${DOMAIN}/truyen-moi-cap-nhat/trang-1.html`;
+        urls = LATEST_PATHS.map((path) => DOMAIN + path);
       }
-      return this.getListPage(url);
+      return this.toPagedResults(await this.loadFirstList(urls));
     }
-    async getListPage(url) {
-      const $ = await this.loadPage(url);
-      const nextUrl = parseNextPageUrl($, url, PAGER_SELECTOR);
+    toPagedResults(page) {
       return App.createPagedResults({
-        results: parseMangaList($, DOMAIN),
-        metadata: nextUrl && nextUrl !== url ? { nextUrl } : void 0
+        results: page.results,
+        metadata: page.nextUrl ? { nextUrl: page.nextUrl } : void 0
       });
+    }
+    /** Thử lần lượt từng URL, trả về trang đầu tiên có truyện. Lỗi Cloudflare báo ngay. */
+    async loadFirstList(urls) {
+      let lastError;
+      for (const url of urls) {
+        try {
+          const $ = await this.loadPage(url);
+          const results = parseMangaList($, DOMAIN);
+          if (results.length === 0) continue;
+          const nextUrl = $(PAGER_SELECTOR).length > 0 ? parseNextPageUrl($, url, PAGER_SELECTOR) : parseNextPageByNumber($, url, DOMAIN);
+          return { results, nextUrl: nextUrl !== url ? nextUrl : void 0 };
+        } catch (error) {
+          if (isCloudflareError(error)) throw error;
+          lastError = error;
+        }
+      }
+      if (lastError) throw lastError;
+      return { results: [] };
     }
     async loadPage(url) {
       const request = App.createRequest({ url, method: "GET" });

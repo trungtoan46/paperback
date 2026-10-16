@@ -1,9 +1,9 @@
 {
-  "name": "paperback-truyenqq",
-  "repositoryName": "TruyenQQ Paperback",
+  "name": "paperback-vi-sources",
+  "repositoryName": "Paperback nguồn tiếng Việt",
   "version": "1.2.0",
   "private": true,
-  "description": "Nguồn TruyenQQ cho Paperback 0.8",
+  "description": "Nguồn TruyenQQ và NetTruyen cho Paperback 0.8",
   "scripts": {
     "build": "tsc --noEmit && node -e \"require('fs').mkdirSync('bundles',{recursive:true})\" && paperback bundle --folder 0.8 && node scripts/publish-bundle.js",
     "serve": "paperback serve",

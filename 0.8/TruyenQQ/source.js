@@ -729,21 +729,19 @@ var _Sources = (() => {
   });
   var import_types = __toESM(require_lib());
 
-  // src/TruyenQQ/TruyenQQParser.ts
-  var MANGA_PATH = "/truyen-tranh/";
+  // shared/utils.ts
   function toPath(href) {
     let path = href.trim().replace(/^https?:\/\/[^/]+/i, "").replace(/^\/\/[^/]+/, "");
     path = path.split("#")[0].split("?")[0];
     return path.startsWith("/") ? path : "/" + path;
   }
-  function mangaIdFromHref(href) {
+  function segmentsAfter(href, prefix) {
     if (!href) return void 0;
     const path = toPath(href);
-    const index = path.indexOf(MANGA_PATH);
+    const index = path.indexOf(prefix);
     if (index === -1) return void 0;
-    const id = path.slice(index + MANGA_PATH.length).replace(/\/+$/, "");
-    if (!id || id.includes("/") || /-chap-/i.test(id)) return void 0;
-    return id;
+    const segments = path.slice(index + prefix.length).split("/").filter((segment) => segment.length > 0);
+    return segments.length > 0 ? segments : void 0;
   }
   function absoluteUrl(url, domain) {
     const value = (url ?? "").trim();
@@ -790,7 +788,7 @@ var _Sources = (() => {
     return new Date(now);
   }
   function parseChapterNumber(url, name) {
-    const fromUrl = toPath(url).match(/-chap-(\d+)(?:[.-](\d+))?(?:\.html)?$/i);
+    const fromUrl = toPath(url).match(/(?:^|[/-])(?:chap|chapter|chuong)-(\d+)(?:[.-](\d+))?(?:\.html)?(?:\/\d+)?\/?$/i);
     if (fromUrl) return parseFloat(fromUrl[1] + (fromUrl[2] ? "." + fromUrl[2] : ""));
     const fromName = name.match(/(?:chương|chap(?:ter)?)\s*(\d+(?:[.,]\d+)?)/i);
     if (fromName) return parseFloat(fromName[1].replace(",", "."));
@@ -801,6 +799,58 @@ var _Sources = (() => {
     if (text.includes("ho\xE0n th\xE0nh") || text.includes("full") || text.includes("completed")) return "Completed";
     if (text.includes("t\u1EA1m ng\u01B0ng") || text.includes("drop")) return "Hiatus";
     return "Ongoing";
+  }
+  function parseNextPageUrl($, pageUrl, pagerSelector) {
+    const within = (child) => pagerSelector.split(",").map((part) => `${part.trim()} ${child}`).join(", ");
+    const $links = $(within("a"));
+    if ($links.length === 0) return void 0;
+    const href = ($a) => {
+      const value = $a.attr("href")?.trim();
+      if (!value || value === "#" || value.startsWith("javascript:")) return void 0;
+      if (value.startsWith("?")) return pageUrl.split("?")[0] + value;
+      return absoluteUrl(value, pageUrl.match(/^https?:\/\/[^/]+/i)?.[0] ?? "");
+    };
+    const active = parseInt(cleanText($(within(".active")).first().text()));
+    if (!isNaN(active)) {
+      const next = $links.filter((_, a) => cleanText($(a).text()) === String(active + 1)).first();
+      if (next.length > 0) return href(next);
+      const hasLater = $links.toArray().some((a) => parseInt(cleanText($(a).text())) > active);
+      if (!hasLater) return void 0;
+    }
+    const arrow = $links.filter((_, a) => {
+      const $a = $(a);
+      const text = cleanText($a.text()).toLowerCase();
+      return $a.attr("rel") === "next" || /next/i.test($a.attr("class") ?? "") || text === "\u203A" || text === ">" || text === "sau";
+    }).first();
+    return arrow.length > 0 ? href(arrow) : void 0;
+  }
+  function parseTagLinks($, selector, pathMarker) {
+    const tags = [];
+    const seen = /* @__PURE__ */ new Set();
+    $(selector).each((_, element) => {
+      const href = $(element).attr("href");
+      const label = cleanText($(element).text());
+      if (!href || !label || !href.includes(pathMarker)) return;
+      const id = toPath(href);
+      if (seen.has(id) || segmentsAfter(id, pathMarker) === void 0) return;
+      seen.add(id);
+      tags.push(App.createTag({ id, label }));
+    });
+    return tags;
+  }
+  function genreSection(tags) {
+    return tags.length > 0 ? [App.createTagSection({ id: "genres", label: "Th\u1EC3 lo\u1EA1i", tags })] : [];
+  }
+  function cloudflareError(status, sourceName) {
+    return new Error(`Cloudflare ch\u1EB7n (HTTP ${status}). V\xE0o c\xE0i \u0111\u1EB7t ngu\u1ED3n ${sourceName} v\xE0 b\u1EA5m "Cloudflare Bypass", sau \u0111\xF3 th\u1EED l\u1EA1i.`);
+  }
+
+  // src/TruyenQQ/TruyenQQParser.ts
+  var PAGER_SELECTOR = ".page_redirect, .pagination, .page_redirect_2";
+  function mangaIdFromHref(href) {
+    const segments = segmentsAfter(href, "/truyen-tranh/");
+    if (!segments || segments.length !== 1 || /-chap-/i.test(segments[0])) return void 0;
+    return segments[0];
   }
   function parseMangaList($, domain) {
     const results = [];
@@ -825,45 +875,13 @@ var _Sources = (() => {
     });
     return results;
   }
-  function parseNextPageUrl($, domain) {
-    const $links = $(".page_redirect a, .pagination a, .page_redirect_2 a");
-    if ($links.length === 0) return void 0;
-    const activeText = cleanText($(".page_redirect .active, .pagination .active").first().text());
-    const active = parseInt(activeText);
-    if (!isNaN(active)) {
-      const next = $links.filter((_, a) => cleanText($(a).text()) === String(active + 1)).first();
-      if (next.length > 0) return absoluteUrl(next.attr("href"), domain);
-      const hasLater = $links.toArray().some((a) => parseInt(cleanText($(a).text())) > active);
-      if (!hasLater) return void 0;
-    }
-    const arrow = $links.filter((_, a) => {
-      const $a = $(a);
-      const text = cleanText($a.text()).toLowerCase();
-      return $a.attr("rel") === "next" || /next/i.test($a.attr("class") ?? "") || text === "\u203A" || text === ">" || text === "sau";
-    }).first();
-    return arrow.length > 0 ? absoluteUrl(arrow.attr("href"), domain) : void 0;
-  }
-  function parseGenreTags($, selector) {
-    const tags = [];
-    const seen = /* @__PURE__ */ new Set();
-    $(selector).each((_, element) => {
-      const href = $(element).attr("href");
-      const label = cleanText($(element).text());
-      if (!href || !label || !href.includes("/the-loai/")) return;
-      const id = toPath(href);
-      if (seen.has(id)) return;
-      seen.add(id);
-      tags.push(App.createTag({ id, label }));
-    });
-    return tags;
-  }
   function parseMangaDetails($, mangaId, domain) {
     const title = cleanText($("h1[itemprop=name], .book_other h1, .book_info h1, h1").first().text()) || mangaId;
     const otherNames = cleanText($("li.othername h2, .other-name").first().text()).split(/[;,]/).map((name) => name.trim()).filter((name) => name.length > 0 && name !== title);
     const author = cleanText($("li.author p.col-xs-9, li.author .org, .list-info .org, .list_info .org").first().text());
     const status = cleanText($("li.status p.col-xs-9, li.status .col-xs-9").first().text());
     const desc = cleanText($(".story-detail-info, .detail-content, .story_introduction").first().text());
-    const tags = parseGenreTags($, "ul.list01 li a, .list01 a");
+    const tags = parseTagLinks($, "ul.list01 li a, .list01 a", "/the-loai/");
     return App.createSourceManga({
       id: mangaId,
       mangaInfo: App.createMangaInfo({
@@ -891,10 +909,9 @@ var _Sources = (() => {
       if (seen.has(id)) return;
       seen.add(id);
       const name = cleanText($link.text());
-      const chapNum = parseChapterNumber(href, name);
       chapters.push(App.createChapter({
         id,
-        chapNum: chapNum ?? $items.length - index,
+        chapNum: parseChapterNumber(href, name) ?? $items.length - index,
         name: name || void 0,
         langCode: "vi",
         time: parseTime(cleanText($item.find(".time-chap").first().text())),
@@ -903,23 +920,13 @@ var _Sources = (() => {
     });
     return chapters;
   }
-  function parseChapterPages($, domain) {
+  function parseChapterDetails($, mangaId, chapterId, domain) {
     const pages = [];
     $(".page-chapter img, #chapter_content img, .chapter_content img").each((_, element) => {
       const url = imageFrom($(element), domain);
       if (url && !pages.includes(url)) pages.push(url);
     });
-    return pages;
-  }
-  function parseChapterDetails($, mangaId, chapterId, domain) {
-    return App.createChapterDetails({
-      id: chapterId,
-      mangaId,
-      pages: parseChapterPages($, domain)
-    });
-  }
-  function genreSection(tags) {
-    return tags.length > 0 ? [App.createTagSection({ id: "genres", label: "Th\u1EC3 lo\u1EA1i", tags })] : [];
+    return App.createChapterDetails({ id: chapterId, mangaId, pages });
   }
 
   // src/TruyenQQ/TruyenQQ.ts
@@ -1001,9 +1008,10 @@ var _Sources = (() => {
       await Promise.all(HOME_SECTIONS.map(async (info, index) => {
         const section = sections[index];
         try {
-          const $ = await this.loadPage(DOMAIN + info.path);
+          const url = DOMAIN + info.path;
+          const $ = await this.loadPage(url);
           section.items = parseMangaList($, DOMAIN);
-          section.containsMoreItems = parseNextPageUrl($, DOMAIN) !== void 0;
+          section.containsMoreItems = parseNextPageUrl($, url, PAGER_SELECTOR) !== void 0;
         } catch (error) {
           console.log(`TruyenQQ: l\u1ED7i t\u1EA3i m\u1EE5c ${info.id}: ${error}`);
           section.items = [];
@@ -1019,7 +1027,7 @@ var _Sources = (() => {
     }
     async getSearchTags() {
       const $ = await this.loadPage(DOMAIN);
-      return genreSection(parseGenreTags($, 'a[href*="/the-loai/"]'));
+      return genreSection(parseTagLinks($, 'a[href*="/the-loai/"]', "/the-loai/"));
     }
     async supportsTagExclusion() {
       return false;
@@ -1039,7 +1047,7 @@ var _Sources = (() => {
     }
     async getListPage(url) {
       const $ = await this.loadPage(url);
-      const nextUrl = parseNextPageUrl($, DOMAIN);
+      const nextUrl = parseNextPageUrl($, url, PAGER_SELECTOR);
       return App.createPagedResults({
         results: parseMangaList($, DOMAIN),
         metadata: nextUrl && nextUrl !== url ? { nextUrl } : void 0
@@ -1053,7 +1061,7 @@ var _Sources = (() => {
     }
     checkResponse(response) {
       if (response.status === 403 || response.status === 503) {
-        throw new Error(`Cloudflare ch\u1EB7n (HTTP ${response.status}). V\xE0o c\xE0i \u0111\u1EB7t ngu\u1ED3n TruyenQQ v\xE0 b\u1EA5m "Cloudflare Bypass", sau \u0111\xF3 th\u1EED l\u1EA1i.`);
+        throw cloudflareError(response.status, "TruyenQQ");
       }
       if (response.status >= 400) {
         throw new Error(`TruyenQQ tr\u1EA3 l\u1ED7i HTTP ${response.status} cho ${response.request?.url ?? ""}`);

@@ -1,0 +1,5 @@
+{"success":true,"data":[
+ {"chapter_id":1,"chapter_name":"Chapter 1","chapter_slug":"chapter-1","updated_at":"2024-01-02T03:04:05","chapter_num":1},
+ {"chapter_id":2,"chapter_name":"Chapter 2","chapter_slug":"chapter-2","updated_at":"2024-02-02T03:04:05","chapter_num":2},
+ {"chapter_id":3,"chapter_name":"Chapter 2.5","chapter_slug":"chapter-2-5","updated_at":"16/10/2026","chapter_num":"2.5"}
+]}

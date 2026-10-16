@@ -22,14 +22,18 @@ import {
 } from '@paperback/types'
 import {
     absoluteUrl,
+    cloudflareError,
     genreSection,
+    parseNextPageUrl,
+    parseTagLinks,
+    toPath
+} from '../../shared/utils'
+import {
+    PAGER_SELECTOR,
     parseChapterDetails,
     parseChapters,
-    parseGenreTags,
     parseMangaDetails,
-    parseMangaList,
-    parseNextPageUrl,
-    toPath
+    parseMangaList
 } from './TruyenQQParser'
 
 // TruyenQQ hay đổi tên miền; khi web đổi thì sửa dòng này rồi tăng version.
@@ -128,9 +132,10 @@ export class TruyenQQ implements SearchResultsProviding, MangaProviding, Chapter
         await Promise.all(HOME_SECTIONS.map(async (info, index) => {
             const section = sections[index]!
             try {
-                const $ = await this.loadPage(DOMAIN + info.path)
+                const url = DOMAIN + info.path
+                const $ = await this.loadPage(url)
                 section.items = parseMangaList($, DOMAIN)
-                section.containsMoreItems = parseNextPageUrl($, DOMAIN) !== undefined
+                section.containsMoreItems = parseNextPageUrl($, url, PAGER_SELECTOR) !== undefined
             } catch (error) {
                 console.log(`TruyenQQ: lỗi tải mục ${info.id}: ${error}`)
                 section.items = []
@@ -148,7 +153,7 @@ export class TruyenQQ implements SearchResultsProviding, MangaProviding, Chapter
 
     async getSearchTags(): Promise<TagSection[]> {
         const $ = await this.loadPage(DOMAIN)
-        return genreSection(parseGenreTags($, 'a[href*="/the-loai/"]'))
+        return genreSection(parseTagLinks($, 'a[href*="/the-loai/"]', '/the-loai/'))
     }
 
     async supportsTagExclusion(): Promise<boolean> {
@@ -173,7 +178,7 @@ export class TruyenQQ implements SearchResultsProviding, MangaProviding, Chapter
 
     private async getListPage(url: string): Promise<PagedResults> {
         const $ = await this.loadPage(url)
-        const nextUrl = parseNextPageUrl($, DOMAIN)
+        const nextUrl = parseNextPageUrl($, url, PAGER_SELECTOR)
         return App.createPagedResults({
             results: parseMangaList($, DOMAIN),
             metadata: nextUrl && nextUrl !== url ? { nextUrl } : undefined
@@ -189,7 +194,7 @@ export class TruyenQQ implements SearchResultsProviding, MangaProviding, Chapter
 
     private checkResponse(response: Response): void {
         if (response.status === 403 || response.status === 503) {
-            throw new Error(`Cloudflare chặn (HTTP ${response.status}). Vào cài đặt nguồn TruyenQQ và bấm "Cloudflare Bypass", sau đó thử lại.`)
+            throw cloudflareError(response.status, 'TruyenQQ')
         }
         if (response.status >= 400) {
             throw new Error(`TruyenQQ trả lỗi HTTP ${response.status} cho ${response.request?.url ?? ''}`)

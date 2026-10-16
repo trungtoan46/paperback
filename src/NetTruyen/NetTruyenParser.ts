@@ -1,0 +1,171 @@
+import type { CheerioAPI } from 'cheerio'
+import {
+    Chapter,
+    ChapterDetails,
+    PartialSourceManga,
+    SourceManga
+} from '@paperback/types'
+import {
+    cleanText,
+    genreSection,
+    imageFrom,
+    mapStatus,
+    parseChapterNumber,
+    parseTagLinks,
+    parseTime,
+    segmentsAfter,
+    toPath
+} from '../../shared/utils'
+
+export const PAGER_SELECTOR = '.pagination, .pagination-outter'
+
+/** '/truyen-tranh/one-piece' -> 'one-piece'. Link chương ('/truyen-tranh/one-piece/chapter-1/123') bị bỏ qua. */
+export function mangaIdFromHref(href: string | undefined): string | undefined {
+    const segments = segmentsAfter(href, '/truyen-tranh/')
+    return segments && segments.length === 1 ? segments[0] : undefined
+}
+
+/** Lưới truyện (.items .item) ở trang chủ, /hot, /tim-truyen. Bỏ slider "Truyện đề cử". */
+export function parseMangaList($: CheerioAPI, domain: string): PartialSourceManga[] {
+    const results: PartialSourceManga[] = []
+    const seen = new Set<string>()
+    $('.items .item').each((_, element) => {
+        const $item = $(element)
+        if ($item.closest('.top-comics, .items-slide, .owl-carousel').length > 0) return
+
+        const $link = $item.find('h3 a, figcaption a, .image a, a').filter((_, a) => {
+            return mangaIdFromHref($(a).attr('href')) !== undefined
+        }).first()
+        const mangaId = mangaIdFromHref($link.attr('href'))
+        if (!mangaId || seen.has(mangaId)) return
+        seen.add(mangaId)
+
+        const $img = $item.find('.image img, img').first()
+        const title = cleanText($item.find('h3 a, h3').first().text())
+            || $link.attr('title')?.trim()
+            || $img.attr('alt')?.trim()
+            || mangaId
+        const subtitle = cleanText($item.find('.comic-item .chapter a, .chapter a').first().text())
+
+        results.push(App.createPartialSourceManga({
+            mangaId,
+            title,
+            image: imageFrom($img, domain),
+            subtitle: subtitle || undefined
+        }))
+    })
+    return results
+}
+
+export function parseMangaDetails($: CheerioAPI, mangaId: string, domain: string): SourceManga {
+    const $detail = $('#item-detail').length > 0 ? $('#item-detail') : $('body')
+    const title = cleanText($detail.find('h1.title-detail, h1').first().text()) || mangaId
+    const otherNames = cleanText($detail.find('li.othername h2, .other-name').first().text())
+        .split(/[;,]/)
+        .map(name => name.trim())
+        .filter(name => name.length > 0 && name !== title)
+
+    const rawAuthor = cleanText($detail.find('li.author p.col-xs-8, li.author a').first().text())
+    const author = rawAuthor.toLowerCase() === 'đang cập nhật' ? '' : rawAuthor
+    const status = cleanText($detail.find('li.status p.col-xs-8, li.status p:not(.name)').first().text())
+    const $desc = $detail.find('.detail-content p, .detail-content .shortened')
+    const desc = cleanText($desc.length > 0 ? $desc.text() : $detail.find('.detail-content').text().replace(/^\s*Nội dung/i, ''))
+    const tags = parseTagLinks($, '#item-detail li.kind a, li.kind a', '/tim-truyen/')
+
+    return App.createSourceManga({
+        id: mangaId,
+        mangaInfo: App.createMangaInfo({
+            titles: [title, ...otherNames],
+            image: imageFrom($detail.find('.col-image img, .detail-info img').first(), domain),
+            author: author || 'Đang cập nhật',
+            artist: author || 'Đang cập nhật',
+            desc: desc || 'Không có mô tả',
+            status: mapStatus(status),
+            hentai: false,
+            tags: genreSection(tags)
+        })
+    })
+}
+
+/** Danh sách chương có sẵn trong HTML (#nt_listchapter), mới nhất trước. */
+export function parseChapters($: CheerioAPI): Chapter[] {
+    const $rows = $('#nt_listchapter li.row, .list-chapter li.row').filter((_, row) => !$(row).hasClass('heading'))
+    const chapters: Chapter[] = []
+    const seen = new Set<string>()
+    $rows.each((index, row) => {
+        const $row = $(row)
+        const $link = $row.find('.chapter a, a').first()
+        const href = $link.attr('href')
+        if (!href) return
+        const id = toPath(href)
+        if (seen.has(id)) return
+        seen.add(id)
+
+        const name = cleanText($link.text())
+        chapters.push(App.createChapter({
+            id,
+            chapNum: parseChapterNumber(href, name) ?? $rows.length - index,
+            name: name || undefined,
+            langCode: 'vi',
+            time: parseTime(cleanText($row.find('.col-xs-4, .no-wrap').first().text())),
+            sortingIndex: -index
+        }))
+    })
+    return chapters
+}
+
+interface ApiChapter {
+    chapter_name?: string
+    chapter_slug?: string
+    chapter_num?: number | string
+    updated_at?: string
+    name?: string
+    slug?: string
+    url?: string
+}
+
+/**
+ * Một số bản NetTruyen tải danh sách chương bằng AJAX:
+ * /Comic/Services/ComicService.asmx/ChapterList?slug=<mangaId> -> { data: [...] }.
+ * Dùng khi HTML không có sẵn danh sách chương.
+ */
+export function parseChapterApi(json: string, mangaId: string): Chapter[] {
+    const parsed = JSON.parse(json)
+    const list: ApiChapter[] = Array.isArray(parsed) ? parsed : (parsed?.data ?? parsed?.chapters ?? [])
+    if (!Array.isArray(list)) return []
+
+    const chapters: Chapter[] = []
+    list.forEach((item, index) => {
+        const slug = item.chapter_slug ?? item.slug
+        const path = item.url ? toPath(item.url) : slug ? `/truyen-tranh/${mangaId}/${slug}` : undefined
+        if (!path) return
+        const name = cleanText(item.chapter_name ?? item.name ?? '')
+        const num = item.chapter_num !== undefined ? parseFloat(String(item.chapter_num)) : NaN
+        chapters.push(App.createChapter({
+            id: path,
+            chapNum: !isNaN(num) ? num : parseChapterNumber(path, name) ?? list.length - index,
+            name: name || undefined,
+            langCode: 'vi',
+            time: item.updated_at ? parseApiTime(item.updated_at) : new Date(),
+            sortingIndex: 0
+        }))
+    })
+    // Không chắc API trả mới nhất trước hay cũ nhất trước: sắp theo số chương, mới nhất trước.
+    chapters.sort((a, b) => b.chapNum - a.chapNum)
+    chapters.forEach((chapter, index) => { chapter.sortingIndex = -index })
+    return chapters
+}
+
+function parseApiTime(value: string): Date {
+    const iso = new Date(value)
+    return isNaN(iso.getTime()) ? parseTime(value) : iso
+}
+
+export function parseChapterDetails($: CheerioAPI, mangaId: string, chapterId: string, domain: string): ChapterDetails {
+    const pages: string[] = []
+    $('.reading-detail .page-chapter img, .page-chapter img').each((_, element) => {
+        const url = imageFrom($(element), domain)
+        if (url && !pages.includes(url)) pages.push(url)
+    })
+    return App.createChapterDetails({ id: chapterId, mangaId, pages })
+}

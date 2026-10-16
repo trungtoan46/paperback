@@ -40,11 +40,12 @@ Thử trực tiếp trên máy: `npm run serve`, rồi trong Paperback thêm rep
 
 ## Thêm vào Paperback (iPhone/iPad)
 
-1. Paperback → **Settings** → **External Sources** → **Edit** (góc trên phải) → **+** (góc trên trái).
+1. Paperback → **Settings** → **Extensions** → **Edit** (góc trên phải) → **+** (góc trên trái).
+   Bản cũ hơn ghi là **External Sources**.
 2. Dán URL: `https://raw.githubusercontent.com/trungtoan46/paperback/main/0.8`
    (hoặc dán link sau vào thanh địa chỉ Safari để mở thẳng app:
    `paperback://addRepo?displayName=Nguon%20Viet&url=https%3A%2F%2Fraw.githubusercontent.com%2Ftrungtoan46%2Fpaperback%2Fmain%2F0.8`)
-3. Trở lại **External Sources**, mở repo vừa thêm, cài **TruyenQQ** và/hoặc **NetTruyen**.
+3. Trở lại **Extensions**, mở repo vừa thêm, cài **TruyenQQ** và/hoặc **NetTruyen**.
 4. Nếu báo lỗi Cloudflare: Settings → Sources → chọn nguồn → **Cloudflare Bypass**,
    đợi trang web tải xong rồi đóng lại.
 

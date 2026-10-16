@@ -6,6 +6,7 @@ import {
     ChapterProviding,
     CloudflareBypassRequestProviding,
     ContentRating,
+    DUISection,
     HomePageSectionsProviding,
     HomeSection,
     HomeSectionType,
@@ -23,11 +24,12 @@ import {
 import {
     absoluteUrl,
     cloudflareError,
-    genreSection,
     parseNextPageUrl,
     parseTagLinks,
     toPath
 } from '../../shared/utils'
+import { FilterOption, genreTags, optionSection, pickOption, readFilterOptions } from '../../shared/filters'
+import { DomainSetting } from '../../shared/settings'
 import {
     PAGER_SELECTOR,
     parseChapterApi,
@@ -37,24 +39,25 @@ import {
     parseMangaList
 } from './NetTruyenParser'
 
-// NetTruyen hay đổi tên miền; khi web đổi thì sửa dòng này rồi tăng version.
-const DOMAIN = 'https://nettruyen.gg'
+// Tên miền mặc định; người dùng đổi được trong cài đặt nguồn khi web đổi địa chỉ.
+const DEFAULT_DOMAIN = 'https://nettruyen.gg'
 
 export const NetTruyenInfo: SourceInfo = {
-    version: '1.0.2',
+    version: '1.1.0',
     name: 'NetTruyen',
     icon: 'icon.png',
     author: 'trungtoan46',
     authorWebsite: 'https://github.com/trungtoan46/paperback',
     description: 'Đọc truyện tranh từ NetTruyen (nettruyen.gg)',
     contentRating: ContentRating.MATURE,
-    websiteBaseURL: DOMAIN,
+    websiteBaseURL: DEFAULT_DOMAIN,
     language: 'vi',
     sourceTags: [
         { text: 'Tiếng Việt', type: BadgeColor.GREY },
         { text: 'Cloudflare', type: BadgeColor.RED }
     ],
-    intents: SourceIntents.MANGA_CHAPTERS | SourceIntents.HOMEPAGE_SECTIONS | SourceIntents.CLOUDFLARE_BYPASS_REQUIRED
+    intents: SourceIntents.MANGA_CHAPTERS | SourceIntents.HOMEPAGE_SECTIONS |
+        SourceIntents.CLOUDFLARE_BYPASS_REQUIRED | SourceIntents.SETTINGS_UI
 }
 
 interface ListMetadata {
@@ -69,10 +72,30 @@ const HOME_SECTIONS = [
     { id: 'completed', title: 'Hoàn thành', path: '/tim-truyen?status=2', type: HomeSectionType.singleRowNormal }
 ]
 
+// Dùng khi không đọc được lựa chọn từ trang /tim-truyen.
+const DEFAULT_STATUS: FilterOption[] = [
+    { value: '1', label: 'Đang tiến hành' },
+    { value: '2', label: 'Hoàn thành' }
+]
+const DEFAULT_SORT: FilterOption[] = [
+    { value: '0', label: 'Ngày cập nhật' },
+    { value: '15', label: 'Truyện mới' },
+    { value: '10', label: 'Top all' },
+    { value: '11', label: 'Top tháng' },
+    { value: '12', label: 'Top tuần' },
+    { value: '13', label: 'Top ngày' },
+    { value: '20', label: 'Theo dõi' },
+    { value: '25', label: 'Bình luận' },
+    { value: '30', label: 'Số chapter' }
+]
+
 export class NetTruyen implements SearchResultsProviding, MangaProviding, ChapterProviding,
     HomePageSectionsProviding, CloudflareBypassRequestProviding {
 
     constructor(private cheerio: CheerioAPI) { }
+
+    readonly stateManager = App.createSourceStateManager()
+    private readonly site = new DomainSetting(this.stateManager, DEFAULT_DOMAIN)
 
     readonly requestManager = App.createRequestManager({
         requestsPerSecond: 4,
@@ -81,7 +104,7 @@ export class NetTruyen implements SearchResultsProviding, MangaProviding, Chapte
             interceptRequest: async (request: Request): Promise<Request> => {
                 request.headers = {
                     ...(request.headers ?? {}),
-                    'referer': `${DOMAIN}/`,
+                    'referer': `${await this.site.load()}/`,
                     'user-agent': await this.requestManager.getDefaultUserAgent()
                 }
                 return request
@@ -92,33 +115,40 @@ export class NetTruyen implements SearchResultsProviding, MangaProviding, Chapte
         }
     })
 
+    async getSourceMenu(): Promise<DUISection> {
+        return this.site.menu()
+    }
+
     getMangaShareUrl(mangaId: string): string {
-        return `${DOMAIN}/truyen-tranh/${mangaId}`
+        return `${this.site.current}/truyen-tranh/${mangaId}`
     }
 
     async getCloudflareBypassRequestAsync(): Promise<Request> {
+        const domain = await this.site.load()
         return App.createRequest({
-            url: DOMAIN,
+            url: domain,
             method: 'GET',
             headers: {
-                'referer': `${DOMAIN}/`,
+                'referer': `${domain}/`,
                 'user-agent': await this.requestManager.getDefaultUserAgent()
             }
         })
     }
 
     async getMangaDetails(mangaId: string): Promise<SourceManga> {
-        const $ = await this.loadPage(this.getMangaShareUrl(mangaId))
-        return parseMangaDetails($, mangaId, DOMAIN)
+        const domain = await this.site.load()
+        const $ = await this.loadPage(`${domain}/truyen-tranh/${mangaId}`)
+        return parseMangaDetails($, mangaId, domain)
     }
 
     async getChapters(mangaId: string): Promise<Chapter[]> {
-        const $ = await this.loadPage(this.getMangaShareUrl(mangaId))
+        const domain = await this.site.load()
+        const $ = await this.loadPage(`${domain}/truyen-tranh/${mangaId}`)
         const chapters = parseChapters($)
         if (chapters.length > 0) return chapters
 
         // Bản giao diện mới tải danh sách chương bằng AJAX.
-        const url = `${DOMAIN}/Comic/Services/ComicService.asmx/ChapterList?slug=${encodeURIComponent(mangaId)}`
+        const url = `${domain}/Comic/Services/ComicService.asmx/ChapterList?slug=${encodeURIComponent(mangaId)}`
         const response = await this.fetch(url, { 'x-requested-with': 'XMLHttpRequest' })
         try {
             return parseChapterApi(response.data ?? '', mangaId)
@@ -128,11 +158,13 @@ export class NetTruyen implements SearchResultsProviding, MangaProviding, Chapte
     }
 
     async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
-        const $ = await this.loadPage(DOMAIN + toPath(chapterId))
-        return parseChapterDetails($, mangaId, chapterId, DOMAIN)
+        const domain = await this.site.load()
+        const $ = await this.loadPage(domain + toPath(chapterId))
+        return parseChapterDetails($, mangaId, chapterId, domain)
     }
 
     async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
+        const domain = await this.site.load()
         const sections = HOME_SECTIONS.map(info => App.createHomeSection({
             id: info.id,
             title: info.title,
@@ -145,9 +177,9 @@ export class NetTruyen implements SearchResultsProviding, MangaProviding, Chapte
         await Promise.all(HOME_SECTIONS.map(async (info, index) => {
             const section = sections[index]!
             try {
-                const url = DOMAIN + info.path
+                const url = domain + info.path
                 const $ = await this.loadPage(url)
-                section.items = parseMangaList($, DOMAIN)
+                section.items = parseMangaList($, domain)
                 section.containsMoreItems = parseNextPageUrl($, url, PAGER_SELECTOR) !== undefined
             } catch (error) {
                 console.log(`NetTruyen: lỗi tải mục ${info.id}: ${error}`)
@@ -161,12 +193,19 @@ export class NetTruyen implements SearchResultsProviding, MangaProviding, Chapte
     async getViewMoreItems(homepageSectionId: string, metadata: ListMetadata | undefined): Promise<PagedResults> {
         const info = HOME_SECTIONS.find(section => section.id === homepageSectionId)
         if (!info) return App.createPagedResults({ results: [] })
-        return this.getListPage(metadata?.nextUrl ?? DOMAIN + info.path)
+        return this.getListPage(metadata?.nextUrl ?? (await this.site.load()) + info.path)
     }
 
     async getSearchTags(): Promise<TagSection[]> {
-        const $ = await this.loadPage(`${DOMAIN}/tim-truyen`)
-        return genreSection(parseTagLinks($, 'a[href*="/tim-truyen/"]', '/tim-truyen/'))
+        const $ = await this.loadPage(`${await this.site.load()}/tim-truyen`)
+        const status = readFilterOptions($, 'status')
+        const sort = readFilterOptions($, 'sort')
+        const genres = parseTagLinks($, 'a[href*="/tim-truyen/"]', '/tim-truyen/')
+        return [
+            App.createTagSection({ id: 'genres', label: 'Thể loại', tags: genres }),
+            optionSection('status', 'Tình trạng', status.length > 0 ? status : DEFAULT_STATUS),
+            optionSection('sort', 'Sắp xếp', sort.length > 0 ? sort : DEFAULT_SORT)
+        ].filter(section => section.tags.length > 0)
     }
 
     async supportsTagExclusion(): Promise<boolean> {
@@ -176,24 +215,29 @@ export class NetTruyen implements SearchResultsProviding, MangaProviding, Chapte
     async getSearchResults(query: SearchRequest, metadata: ListMetadata | undefined): Promise<PagedResults> {
         if (metadata?.nextUrl) return this.getListPage(metadata.nextUrl)
 
+        const domain = await this.site.load()
         const title = query.title?.trim()
-        let url: string
         if (title) {
-            url = `${DOMAIN}/tim-truyen?keyword=${encodeURIComponent(title)}`
-        } else if (query.includedTags && query.includedTags.length > 0) {
-            // Web chỉ lọc một thể loại mỗi lần; id thể loại là path, ví dụ '/tim-truyen/action-95'.
-            url = absoluteUrl(query.includedTags[0]!.id, DOMAIN)
-        } else {
-            url = `${DOMAIN}/tim-truyen`
+            // Tìm theo tên: web không lọc kết hợp với thể loại/tình trạng.
+            return this.getListPage(`${domain}/tim-truyen?keyword=${encodeURIComponent(title)}`)
         }
-        return this.getListPage(url)
+
+        // Web chỉ lọc một thể loại mỗi lần; id thể loại là path, ví dụ '/tim-truyen/action-95'.
+        const genre = genreTags(query.includedTags)[0]
+        const params: string[] = []
+        const status = pickOption(query.includedTags, 'status')
+        const sort = pickOption(query.includedTags, 'sort')
+        if (status !== undefined) params.push(`status=${encodeURIComponent(status)}`)
+        if (sort !== undefined) params.push(`sort=${encodeURIComponent(sort)}`)
+        const base = genre ? absoluteUrl(genre.id, domain) : `${domain}/tim-truyen`
+        return this.getListPage(params.length > 0 ? `${base}?${params.join('&')}` : base)
     }
 
     private async getListPage(url: string): Promise<PagedResults> {
         const $ = await this.loadPage(url)
         const nextUrl = parseNextPageUrl($, url, PAGER_SELECTOR)
         return App.createPagedResults({
-            results: parseMangaList($, DOMAIN),
+            results: parseMangaList($, await this.site.load()),
             metadata: nextUrl && nextUrl !== url ? { nextUrl } : undefined
         })
     }

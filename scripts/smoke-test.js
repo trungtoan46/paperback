@@ -37,7 +37,18 @@ function loadSource(id, routes) {
         createPagedResults: passThrough({ results: [] }),
         createHomeSection: passThrough({ items: [] }),
         createTagSection: passThrough({}),
-        createTag: passThrough({})
+        createTag: passThrough({}),
+        createSourceStateManager: () => {
+            const store = new Map()
+            return { store: async (key, value) => { store.set(key, value) }, retrieve: async key => store.get(key) }
+        },
+        createDUISection: passThrough({}),
+        createDUIForm: passThrough({}),
+        createDUIBinding: passThrough({}),
+        createDUIInputField: passThrough({ type: 'input' }),
+        createDUINavigationButton: passThrough({ type: 'navigation' }),
+        createDUIButton: passThrough({ type: 'button' }),
+        createDUILabel: passThrough({ type: 'label' })
     }
 
     const code = fs.readFileSync(path.join(root, '0.8', id, 'source.js'), 'utf8')
@@ -47,7 +58,7 @@ function loadSource(id, routes) {
     assert.ok(Sources, `${id}: source.js phải gán biến toàn cục Sources`)
     const info = Sources[`${id}Info`]
     assert.strictEqual(info.contentRating, 'MATURE')
-    assert.strictEqual(info.intents, 1 | 4 | 16)
+    assert.strictEqual(info.intents, 1 | 4 | 16 | 32)
     assert.ok(fs.existsSync(path.join(root, '0.8', id, 'includes', info.icon)), `${id}: thiếu icon`)
     return { source: new Sources[id](cheerio), requested }
 }
@@ -56,6 +67,18 @@ async function homeSections(source) {
     const sections = new Map()
     await source.getHomePageSections(section => sections.set(section.id, section))
     return sections
+}
+
+/** Mở cài đặt nguồn như app: trả về các dòng và ô nhập tên miền. */
+async function openSettings(source) {
+    const menu = await source.getSourceMenu()
+    const rows = await menu.rows()
+    const label = rows.find(row => row.type === 'label')
+    const form = rows.find(row => row.type === 'navigation').form
+    const section = (await form.sections())[0]
+    const input = (await section.rows()).find(row => row.type === 'input')
+    const reset = rows.find(row => row.type === 'button')
+    return { label, input, reset }
 }
 
 const query = (fields = {}) => ({ includedTags: [], excludedTags: [], parameters: {}, ...fields })
@@ -73,7 +96,11 @@ async function testTruyenQQ() {
         [`${D}/the-loai/action-26`]: f('generic-list.html'),
         [`${D}/truyen-tranh/dao-hai-tac-128`]: f('manga.html'),
         [`${D}/truyen-tranh/dao-hai-tac-128-chap-1100`]: f('chapter.html'),
-        [`${D}/truyen-tranh/dao-hai-tac-128-chap-1100.html`]: f('chapter.html')
+        [`${D}/truyen-tranh/dao-hai-tac-128-chap-1100.html`]: f('chapter.html'),
+        [`${D}/tim-kiem-nang-cao`]: f('advanced.html'),
+        // '/tim-kiem-nang-cao?...' không có (404) -> dùng URL dự phòng có '.html'
+        [`${D}/tim-kiem-nang-cao.html?category=26&notcategory=36&country=0&status=2&minchapter=0&sort=4`]: f('last-page.html'),
+        ['https://qq.example/truyen-tranh/dao-hai-tac-128']: f('manga.html')
     })
 
     // Trang chủ
@@ -118,6 +145,17 @@ async function testTruyenQQ() {
     ])
     eq(byGenre.metadata, { nextUrl: `${D}/the-loai/action-26/trang-2` })
 
+    // Bộ lọc tình trạng/sắp xếp đọc từ trang tìm kiếm nâng cao; tìm nâng cao có loại trừ thể loại
+    eq(tags.map(t => t.id), ['genres', 'status', 'sort'])
+    eq(tags[1].tags, [{ id: 'status:0', label: 'Đang tiến hành' }, { id: 'status:2', label: 'Hoàn thành' }])
+    eq(tags[2].tags.map(t => t.id), ['sort:0', 'sort:2', 'sort:4'])
+    assert.strictEqual(await source.supportsTagExclusion(), true)
+    const advanced = await source.getSearchResults(query({
+        includedTags: [tags[0].tags[0], tags[1].tags[1], tags[2].tags[2]],
+        excludedTags: [tags[0].tags[1]]
+    }), undefined)
+    assert.strictEqual(advanced.results[0].mangaId, 'xyz-9')
+
     // Chi tiết truyện
     const manga = await source.getMangaDetails('dao-hai-tac-128')
     eq(manga.mangaInfo.titles, ['Đảo Hải Tặc', 'One Piece', 'Vua Hải Tặc'])
@@ -149,6 +187,21 @@ async function testTruyenQQ() {
 
     const bypass = await source.getCloudflareBypassRequestAsync()
     assert.strictEqual(bypass.url, D)
+
+    // Cài đặt: đổi tên miền, nhập sai thì giữ nguyên, nút mặc định khôi phục
+    const settings = await openSettings(source)
+    assert.strictEqual(settings.label.value, D)
+    assert.strictEqual(await settings.input.value.get(), D)
+    await settings.input.value.set('qq.example/duong-dan')
+    assert.strictEqual(source.getMangaShareUrl('dao-hai-tac-128'), 'https://qq.example/truyen-tranh/dao-hai-tac-128')
+    const moved = await source.getMangaDetails('dao-hai-tac-128')
+    assert.strictEqual(moved.mangaInfo.titles[0], 'Đảo Hải Tặc')
+    assert.strictEqual(requested[requested.length - 1].headers.referer, 'https://qq.example/')
+    await settings.input.value.set('khong phai ten mien')
+    assert.strictEqual(await settings.input.value.get(), 'https://qq.example')
+    await settings.reset.onTap()
+    assert.strictEqual(source.getMangaShareUrl('x-1'), `${D}/truyen-tranh/x-1`)
+    assert.strictEqual((await openSettings(source)).label.value, D)
 }
 
 async function testNetTruyen() {
@@ -165,7 +218,10 @@ async function testNetTruyen() {
         [`${D}/truyen-tranh/one-piece`]: f('manga.html'),
         [`${D}/truyen-tranh/van-co-chi-ton`]: f('manga-ajax.html'),
         [`${D}/Comic/Services/ComicService.asmx/ChapterList?slug=van-co-chi-ton`]: f('chapters.json'),
-        [`${D}/truyen-tranh/one-piece/chapter-1100/123456`]: f('chapter.html')
+        [`${D}/truyen-tranh/one-piece/chapter-1100/123456`]: f('chapter.html'),
+        [`${D}/tim-truyen/action-95?status=2&sort=11`]: f('last-page.html'),
+        [`${D}/tim-truyen?sort=13`]: f('hot.html'),
+        ['https://nt.example/truyen-tranh/one-piece']: f('manga.html')
     })
 
     // Trang chủ: bỏ slider đề cử, ảnh lazy-load, link tương đối
@@ -198,6 +254,14 @@ async function testNetTruyen() {
         { id: '/tim-truyen/action-95', label: 'Action' },
         { id: '/tim-truyen/comedy-99', label: 'Comedy' }
     ])
+    // Tình trạng đọc từ <select>, sắp xếp đọc từ link '?sort='
+    eq(tags[1].tags, [{ id: 'status:1', label: 'Đang tiến hành' }, { id: 'status:2', label: 'Hoàn thành' }])
+    eq(tags[2].tags, [{ id: 'sort:0', label: 'Ngày cập nhật' }, { id: 'sort:11', label: 'Top tháng' }])
+    assert.strictEqual(await source.supportsTagExclusion(), false)
+    const filtered = await source.getSearchResults(query({ includedTags: [tags[0].tags[0], tags[1].tags[1], tags[2].tags[1]] }), undefined)
+    assert.strictEqual(filtered.results[0].mangaId, 'cuoi-cung')
+    const sortOnly = await source.getSearchResults(query({ includedTags: [{ id: 'sort:13', label: 'Top ngày' }] }), undefined)
+    assert.strictEqual(sortOnly.results[0].mangaId, 'hot-1')
     const byGenre = await source.getSearchResults(query({ includedTags: [tags[0].tags[0]] }), undefined)
     assert.strictEqual(byGenre.results[0].mangaId, 'cuoi-cung')
 
@@ -237,6 +301,14 @@ async function testNetTruyen() {
 
     await assert.rejects(source.getMangaDetails('khong-co'), /HTTP 404/)
     assert.strictEqual((await source.getCloudflareBypassRequestAsync()).url, D)
+
+    // Cài đặt tên miền
+    const settings = await openSettings(source)
+    await settings.input.value.set('https://NT.example/')
+    assert.strictEqual((await source.getMangaDetails('one-piece')).mangaInfo.titles[0], 'One Piece')
+    assert.strictEqual((await source.getCloudflareBypassRequestAsync()).url, 'https://nt.example')
+    await settings.input.value.set('')
+    assert.strictEqual(source.getMangaShareUrl('one-piece'), `${D}/truyen-tranh/one-piece`)
 }
 
 async function main() {

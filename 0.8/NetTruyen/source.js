@@ -848,6 +848,113 @@ var _Sources = (() => {
     return error;
   }
 
+  // shared/filters.ts
+  function readFilterOptions($, param) {
+    const options = [];
+    const add = (value, label) => {
+      if (value === void 0 || value === "" || value === "-1" || !label) return;
+      if (options.some((option) => option.value === value)) return;
+      options.push({ value, label });
+    };
+    $(`select[name="${param}"] option`).each((_, element) => {
+      add($(element).attr("value")?.trim(), cleanText($(element).text()));
+    });
+    if (options.length > 0) return options;
+    const pattern = new RegExp(`[?&]${param}=([^&#]+)`);
+    $(`a[href*="${param}="]`).each((_, element) => {
+      add($(element).attr("href")?.match(pattern)?.[1], cleanText($(element).text()));
+    });
+    return options;
+  }
+  function optionSection(prefix, label, options) {
+    return App.createTagSection({
+      id: prefix,
+      label,
+      tags: options.map((option) => App.createTag({ id: `${prefix}:${option.value}`, label: option.label }))
+    });
+  }
+  function pickOption(tags, prefix) {
+    const tag = (tags ?? []).find((item) => item.id.startsWith(prefix + ":"));
+    return tag?.id.slice(prefix.length + 1);
+  }
+  function genreTags(tags) {
+    return (tags ?? []).filter((tag) => tag.id.startsWith("/"));
+  }
+
+  // shared/settings.ts
+  var DOMAIN_KEY = "domain";
+  function normalizeDomain(value) {
+    if (typeof value !== "string") return void 0;
+    let text = value.trim();
+    if (!text) return void 0;
+    if (!/^https?:\/\//i.test(text)) text = "https://" + text;
+    const match = text.match(/^(https?:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)+(?::\d+)?)(?:[/?#]|$)/i);
+    return match ? match[1].toLowerCase() : void 0;
+  }
+  var DomainSetting = class {
+    constructor(stateManager, defaultDomain) {
+      this.stateManager = stateManager;
+      this.defaultDomain = defaultDomain;
+    }
+    /** Giá trị đã nạp gần nhất; dùng cho chỗ không chờ được (getMangaShareUrl, interceptor). */
+    get current() {
+      return this.cached ?? this.defaultDomain;
+    }
+    async load() {
+      if (this.cached === void 0) {
+        this.cached = normalizeDomain(await this.stateManager.retrieve(DOMAIN_KEY)) ?? this.defaultDomain;
+      }
+      return this.cached;
+    }
+    /** Chuỗi rỗng = về mặc định; chuỗi không hợp lệ bị bỏ qua. */
+    async save(value) {
+      const empty = typeof value !== "string" || value.trim() === "";
+      const domain = empty ? void 0 : normalizeDomain(value);
+      if (!empty && domain === void 0) return;
+      await this.stateManager.store(DOMAIN_KEY, domain ?? null);
+      this.cached = domain ?? this.defaultDomain;
+    }
+    menu() {
+      return App.createDUISection({
+        id: "settings",
+        header: "C\xE0i \u0111\u1EB7t",
+        isHidden: false,
+        rows: async () => [
+          App.createDUILabel({ id: "current_domain", label: "T\xEAn mi\u1EC1n \u0111ang d\xF9ng", value: await this.load() }),
+          App.createDUINavigationButton({
+            id: "domain_form",
+            label: "\u0110\u1ED5i t\xEAn mi\u1EC1n",
+            form: App.createDUIForm({
+              sections: async () => [
+                App.createDUISection({
+                  id: "domain_section",
+                  header: "T\xEAn mi\u1EC1n",
+                  footer: `Nh\u1EADp t\xEAn mi\u1EC1n m\u1EDBi khi web \u0111\u1ED5i \u0111\u1ECBa ch\u1EC9, v\xED d\u1EE5 ${this.defaultDomain.replace(/^https?:\/\//, "")}. \u0110\u1EC3 tr\u1ED1ng \u0111\u1EC3 d\xF9ng m\u1EB7c \u0111\u1ECBnh (${this.defaultDomain}).`,
+                  isHidden: false,
+                  rows: async () => [
+                    App.createDUIInputField({
+                      id: "domain_input",
+                      label: "T\xEAn mi\u1EC1n",
+                      value: App.createDUIBinding({
+                        get: async () => this.load(),
+                        set: async (value) => this.save(value)
+                      })
+                    })
+                  ]
+                })
+              ]
+            })
+          }),
+          App.createDUIButton({
+            id: "reset_domain",
+            label: "D\xF9ng t\xEAn mi\u1EC1n m\u1EB7c \u0111\u1ECBnh",
+            onTap: async () => this.save("")
+          })
+        ]
+      });
+    }
+  };
+
   // src/NetTruyen/NetTruyenParser.ts
   var PAGER_SELECTOR = ".pagination, .pagination-outter";
   function mangaIdFromHref(href) {
@@ -966,31 +1073,48 @@ var _Sources = (() => {
   }
 
   // src/NetTruyen/NetTruyen.ts
-  var DOMAIN = "https://nettruyen.gg";
+  var DEFAULT_DOMAIN = "https://nettruyen.gg";
   var NetTruyenInfo = {
-    version: "1.0.2",
+    version: "1.1.0",
     name: "NetTruyen",
     icon: "icon.png",
     author: "trungtoan46",
     authorWebsite: "https://github.com/trungtoan46/paperback",
     description: "\u0110\u1ECDc truy\u1EC7n tranh t\u1EEB NetTruyen (nettruyen.gg)",
     contentRating: import_types.ContentRating.MATURE,
-    websiteBaseURL: DOMAIN,
+    websiteBaseURL: DEFAULT_DOMAIN,
     language: "vi",
     sourceTags: [
       { text: "Ti\u1EBFng Vi\u1EC7t", type: import_types.BadgeColor.GREY },
       { text: "Cloudflare", type: import_types.BadgeColor.RED }
     ],
-    intents: import_types.SourceIntents.MANGA_CHAPTERS | import_types.SourceIntents.HOMEPAGE_SECTIONS | import_types.SourceIntents.CLOUDFLARE_BYPASS_REQUIRED
+    intents: import_types.SourceIntents.MANGA_CHAPTERS | import_types.SourceIntents.HOMEPAGE_SECTIONS | import_types.SourceIntents.CLOUDFLARE_BYPASS_REQUIRED | import_types.SourceIntents.SETTINGS_UI
   };
   var HOME_SECTIONS = [
     { id: "latest", title: "M\u1EDBi c\u1EADp nh\u1EADt", path: "/tim-truyen?status=-1&sort=0", type: import_types.HomeSectionType.singleRowNormal },
     { id: "hot", title: "Top th\xE1ng", path: "/tim-truyen?status=-1&sort=11", type: import_types.HomeSectionType.singleRowNormal },
     { id: "completed", title: "Ho\xE0n th\xE0nh", path: "/tim-truyen?status=2", type: import_types.HomeSectionType.singleRowNormal }
   ];
+  var DEFAULT_STATUS = [
+    { value: "1", label: "\u0110ang ti\u1EBFn h\xE0nh" },
+    { value: "2", label: "Ho\xE0n th\xE0nh" }
+  ];
+  var DEFAULT_SORT = [
+    { value: "0", label: "Ng\xE0y c\u1EADp nh\u1EADt" },
+    { value: "15", label: "Truy\u1EC7n m\u1EDBi" },
+    { value: "10", label: "Top all" },
+    { value: "11", label: "Top th\xE1ng" },
+    { value: "12", label: "Top tu\u1EA7n" },
+    { value: "13", label: "Top ng\xE0y" },
+    { value: "20", label: "Theo d\xF5i" },
+    { value: "25", label: "B\xECnh lu\u1EADn" },
+    { value: "30", label: "S\u1ED1 chapter" }
+  ];
   var NetTruyen = class {
     constructor(cheerio) {
       this.cheerio = cheerio;
+      this.stateManager = App.createSourceStateManager();
+      this.site = new DomainSetting(this.stateManager, DEFAULT_DOMAIN);
       this.requestManager = App.createRequestManager({
         requestsPerSecond: 4,
         requestTimeout: 2e4,
@@ -998,7 +1122,7 @@ var _Sources = (() => {
           interceptRequest: async (request) => {
             request.headers = {
               ...request.headers ?? {},
-              "referer": `${DOMAIN}/`,
+              "referer": `${await this.site.load()}/`,
               "user-agent": await this.requestManager.getDefaultUserAgent()
             };
             return request;
@@ -1009,28 +1133,34 @@ var _Sources = (() => {
         }
       });
     }
+    async getSourceMenu() {
+      return this.site.menu();
+    }
     getMangaShareUrl(mangaId) {
-      return `${DOMAIN}/truyen-tranh/${mangaId}`;
+      return `${this.site.current}/truyen-tranh/${mangaId}`;
     }
     async getCloudflareBypassRequestAsync() {
+      const domain = await this.site.load();
       return App.createRequest({
-        url: DOMAIN,
+        url: domain,
         method: "GET",
         headers: {
-          "referer": `${DOMAIN}/`,
+          "referer": `${domain}/`,
           "user-agent": await this.requestManager.getDefaultUserAgent()
         }
       });
     }
     async getMangaDetails(mangaId) {
-      const $ = await this.loadPage(this.getMangaShareUrl(mangaId));
-      return parseMangaDetails($, mangaId, DOMAIN);
+      const domain = await this.site.load();
+      const $ = await this.loadPage(`${domain}/truyen-tranh/${mangaId}`);
+      return parseMangaDetails($, mangaId, domain);
     }
     async getChapters(mangaId) {
-      const $ = await this.loadPage(this.getMangaShareUrl(mangaId));
+      const domain = await this.site.load();
+      const $ = await this.loadPage(`${domain}/truyen-tranh/${mangaId}`);
       const chapters = parseChapters($);
       if (chapters.length > 0) return chapters;
-      const url = `${DOMAIN}/Comic/Services/ComicService.asmx/ChapterList?slug=${encodeURIComponent(mangaId)}`;
+      const url = `${domain}/Comic/Services/ComicService.asmx/ChapterList?slug=${encodeURIComponent(mangaId)}`;
       const response = await this.fetch(url, { "x-requested-with": "XMLHttpRequest" });
       try {
         return parseChapterApi(response.data ?? "", mangaId);
@@ -1039,10 +1169,12 @@ var _Sources = (() => {
       }
     }
     async getChapterDetails(mangaId, chapterId) {
-      const $ = await this.loadPage(DOMAIN + toPath(chapterId));
-      return parseChapterDetails($, mangaId, chapterId, DOMAIN);
+      const domain = await this.site.load();
+      const $ = await this.loadPage(domain + toPath(chapterId));
+      return parseChapterDetails($, mangaId, chapterId, domain);
     }
     async getHomePageSections(sectionCallback) {
+      const domain = await this.site.load();
       const sections = HOME_SECTIONS.map((info) => App.createHomeSection({
         id: info.id,
         title: info.title,
@@ -1053,9 +1185,9 @@ var _Sources = (() => {
       await Promise.all(HOME_SECTIONS.map(async (info, index) => {
         const section = sections[index];
         try {
-          const url = DOMAIN + info.path;
+          const url = domain + info.path;
           const $ = await this.loadPage(url);
-          section.items = parseMangaList($, DOMAIN);
+          section.items = parseMangaList($, domain);
           section.containsMoreItems = parseNextPageUrl($, url, PAGER_SELECTOR) !== void 0;
         } catch (error) {
           console.log(`NetTruyen: l\u1ED7i t\u1EA3i m\u1EE5c ${info.id}: ${error}`);
@@ -1068,33 +1200,43 @@ var _Sources = (() => {
     async getViewMoreItems(homepageSectionId, metadata) {
       const info = HOME_SECTIONS.find((section) => section.id === homepageSectionId);
       if (!info) return App.createPagedResults({ results: [] });
-      return this.getListPage(metadata?.nextUrl ?? DOMAIN + info.path);
+      return this.getListPage(metadata?.nextUrl ?? await this.site.load() + info.path);
     }
     async getSearchTags() {
-      const $ = await this.loadPage(`${DOMAIN}/tim-truyen`);
-      return genreSection(parseTagLinks($, 'a[href*="/tim-truyen/"]', "/tim-truyen/"));
+      const $ = await this.loadPage(`${await this.site.load()}/tim-truyen`);
+      const status = readFilterOptions($, "status");
+      const sort = readFilterOptions($, "sort");
+      const genres = parseTagLinks($, 'a[href*="/tim-truyen/"]', "/tim-truyen/");
+      return [
+        App.createTagSection({ id: "genres", label: "Th\u1EC3 lo\u1EA1i", tags: genres }),
+        optionSection("status", "T\xECnh tr\u1EA1ng", status.length > 0 ? status : DEFAULT_STATUS),
+        optionSection("sort", "S\u1EAFp x\u1EBFp", sort.length > 0 ? sort : DEFAULT_SORT)
+      ].filter((section) => section.tags.length > 0);
     }
     async supportsTagExclusion() {
       return false;
     }
     async getSearchResults(query, metadata) {
       if (metadata?.nextUrl) return this.getListPage(metadata.nextUrl);
+      const domain = await this.site.load();
       const title = query.title?.trim();
-      let url;
       if (title) {
-        url = `${DOMAIN}/tim-truyen?keyword=${encodeURIComponent(title)}`;
-      } else if (query.includedTags && query.includedTags.length > 0) {
-        url = absoluteUrl(query.includedTags[0].id, DOMAIN);
-      } else {
-        url = `${DOMAIN}/tim-truyen`;
+        return this.getListPage(`${domain}/tim-truyen?keyword=${encodeURIComponent(title)}`);
       }
-      return this.getListPage(url);
+      const genre = genreTags(query.includedTags)[0];
+      const params = [];
+      const status = pickOption(query.includedTags, "status");
+      const sort = pickOption(query.includedTags, "sort");
+      if (status !== void 0) params.push(`status=${encodeURIComponent(status)}`);
+      if (sort !== void 0) params.push(`sort=${encodeURIComponent(sort)}`);
+      const base = genre ? absoluteUrl(genre.id, domain) : `${domain}/tim-truyen`;
+      return this.getListPage(params.length > 0 ? `${base}?${params.join("&")}` : base);
     }
     async getListPage(url) {
       const $ = await this.loadPage(url);
       const nextUrl = parseNextPageUrl($, url, PAGER_SELECTOR);
       return App.createPagedResults({
-        results: parseMangaList($, DOMAIN),
+        results: parseMangaList($, await this.site.load()),
         metadata: nextUrl && nextUrl !== url ? { nextUrl } : void 0
       });
     }

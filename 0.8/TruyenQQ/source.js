@@ -851,6 +851,113 @@ var _Sources = (() => {
     return error instanceof Error && error.name === CLOUDFLARE_ERROR;
   }
 
+  // shared/filters.ts
+  function readFilterOptions($, param) {
+    const options = [];
+    const add = (value, label) => {
+      if (value === void 0 || value === "" || value === "-1" || !label) return;
+      if (options.some((option) => option.value === value)) return;
+      options.push({ value, label });
+    };
+    $(`select[name="${param}"] option`).each((_, element) => {
+      add($(element).attr("value")?.trim(), cleanText($(element).text()));
+    });
+    if (options.length > 0) return options;
+    const pattern = new RegExp(`[?&]${param}=([^&#]+)`);
+    $(`a[href*="${param}="]`).each((_, element) => {
+      add($(element).attr("href")?.match(pattern)?.[1], cleanText($(element).text()));
+    });
+    return options;
+  }
+  function optionSection(prefix, label, options) {
+    return App.createTagSection({
+      id: prefix,
+      label,
+      tags: options.map((option) => App.createTag({ id: `${prefix}:${option.value}`, label: option.label }))
+    });
+  }
+  function pickOption(tags, prefix) {
+    const tag = (tags ?? []).find((item) => item.id.startsWith(prefix + ":"));
+    return tag?.id.slice(prefix.length + 1);
+  }
+  function genreTags(tags) {
+    return (tags ?? []).filter((tag) => tag.id.startsWith("/"));
+  }
+
+  // shared/settings.ts
+  var DOMAIN_KEY = "domain";
+  function normalizeDomain(value) {
+    if (typeof value !== "string") return void 0;
+    let text = value.trim();
+    if (!text) return void 0;
+    if (!/^https?:\/\//i.test(text)) text = "https://" + text;
+    const match = text.match(/^(https?:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)+(?::\d+)?)(?:[/?#]|$)/i);
+    return match ? match[1].toLowerCase() : void 0;
+  }
+  var DomainSetting = class {
+    constructor(stateManager, defaultDomain) {
+      this.stateManager = stateManager;
+      this.defaultDomain = defaultDomain;
+    }
+    /** Giá trị đã nạp gần nhất; dùng cho chỗ không chờ được (getMangaShareUrl, interceptor). */
+    get current() {
+      return this.cached ?? this.defaultDomain;
+    }
+    async load() {
+      if (this.cached === void 0) {
+        this.cached = normalizeDomain(await this.stateManager.retrieve(DOMAIN_KEY)) ?? this.defaultDomain;
+      }
+      return this.cached;
+    }
+    /** Chuỗi rỗng = về mặc định; chuỗi không hợp lệ bị bỏ qua. */
+    async save(value) {
+      const empty = typeof value !== "string" || value.trim() === "";
+      const domain = empty ? void 0 : normalizeDomain(value);
+      if (!empty && domain === void 0) return;
+      await this.stateManager.store(DOMAIN_KEY, domain ?? null);
+      this.cached = domain ?? this.defaultDomain;
+    }
+    menu() {
+      return App.createDUISection({
+        id: "settings",
+        header: "C\xE0i \u0111\u1EB7t",
+        isHidden: false,
+        rows: async () => [
+          App.createDUILabel({ id: "current_domain", label: "T\xEAn mi\u1EC1n \u0111ang d\xF9ng", value: await this.load() }),
+          App.createDUINavigationButton({
+            id: "domain_form",
+            label: "\u0110\u1ED5i t\xEAn mi\u1EC1n",
+            form: App.createDUIForm({
+              sections: async () => [
+                App.createDUISection({
+                  id: "domain_section",
+                  header: "T\xEAn mi\u1EC1n",
+                  footer: `Nh\u1EADp t\xEAn mi\u1EC1n m\u1EDBi khi web \u0111\u1ED5i \u0111\u1ECBa ch\u1EC9, v\xED d\u1EE5 ${this.defaultDomain.replace(/^https?:\/\//, "")}. \u0110\u1EC3 tr\u1ED1ng \u0111\u1EC3 d\xF9ng m\u1EB7c \u0111\u1ECBnh (${this.defaultDomain}).`,
+                  isHidden: false,
+                  rows: async () => [
+                    App.createDUIInputField({
+                      id: "domain_input",
+                      label: "T\xEAn mi\u1EC1n",
+                      value: App.createDUIBinding({
+                        get: async () => this.load(),
+                        set: async (value) => this.save(value)
+                      })
+                    })
+                  ]
+                })
+              ]
+            })
+          }),
+          App.createDUIButton({
+            id: "reset_domain",
+            label: "D\xF9ng t\xEAn mi\u1EC1n m\u1EB7c \u0111\u1ECBnh",
+            onTap: async () => this.save("")
+          })
+        ]
+      });
+    }
+  };
+
   // src/TruyenQQ/TruyenQQParser.ts
   var PAGER_SELECTOR = ".page_redirect, .pagination, .page_redirect_2";
   function mangaIdFromHref(href) {
@@ -969,31 +1076,49 @@ var _Sources = (() => {
   }
 
   // src/TruyenQQ/TruyenQQ.ts
-  var DOMAIN = "https://truyenqqko.com";
+  var DEFAULT_DOMAIN = "https://truyenqqko.com";
   var TruyenQQInfo = {
-    version: "1.2.2",
+    version: "1.3.0",
     name: "TruyenQQ",
     icon: "icon.png",
     author: "trungtoan46",
     authorWebsite: "https://github.com/trungtoan46/paperback",
     description: "\u0110\u1ECDc truy\u1EC7n tranh t\u1EEB TruyenQQ",
     contentRating: import_types.ContentRating.MATURE,
-    websiteBaseURL: DOMAIN,
+    websiteBaseURL: DEFAULT_DOMAIN,
     language: "vi",
     sourceTags: [
       { text: "Ti\u1EBFng Vi\u1EC7t", type: import_types.BadgeColor.GREY },
       { text: "Cloudflare", type: import_types.BadgeColor.RED }
     ],
-    intents: import_types.SourceIntents.MANGA_CHAPTERS | import_types.SourceIntents.HOMEPAGE_SECTIONS | import_types.SourceIntents.CLOUDFLARE_BYPASS_REQUIRED
+    intents: import_types.SourceIntents.MANGA_CHAPTERS | import_types.SourceIntents.HOMEPAGE_SECTIONS | import_types.SourceIntents.CLOUDFLARE_BYPASS_REQUIRED | import_types.SourceIntents.SETTINGS_UI
   };
   var LATEST_PATHS = ["/truyen-moi-cap-nhat/trang-1", "/truyen-moi-cap-nhat/trang-1.html", "/"];
+  var ADVANCED_SEARCH_PATHS = ["/tim-kiem-nang-cao", "/tim-kiem-nang-cao.html"];
   var HOME_SECTIONS = [
     { id: "latest", title: "M\u1EDBi c\u1EADp nh\u1EADt", paths: LATEST_PATHS, type: import_types.HomeSectionType.singleRowNormal },
     { id: "favorite", title: "Y\xEAu th\xEDch", paths: ["/truyen-yeu-thich/trang-1", "/truyen-yeu-thich/trang-1.html"], type: import_types.HomeSectionType.singleRowNormal }
   ];
+  var DEFAULT_STATUS = [
+    { value: "0", label: "\u0110ang ti\u1EBFn h\xE0nh" },
+    { value: "2", label: "Ho\xE0n th\xE0nh" }
+  ];
+  var DEFAULT_SORT = [
+    { value: "0", label: "Ng\xE0y \u0111\u0103ng gi\u1EA3m d\u1EA7n" },
+    { value: "1", label: "Ng\xE0y \u0111\u0103ng t\u0103ng d\u1EA7n" },
+    { value: "2", label: "Ng\xE0y c\u1EADp nh\u1EADt gi\u1EA3m d\u1EA7n" },
+    { value: "3", label: "Ng\xE0y c\u1EADp nh\u1EADt t\u0103ng d\u1EA7n" },
+    { value: "4", label: "L\u01B0\u1EE3t xem gi\u1EA3m d\u1EA7n" },
+    { value: "5", label: "L\u01B0\u1EE3t xem t\u0103ng d\u1EA7n" }
+  ];
+  function genreCode(tag) {
+    return toPath(tag.id).match(/-(\d+)(?:\.html)?$/)?.[1];
+  }
   var TruyenQQ = class {
     constructor(cheerio) {
       this.cheerio = cheerio;
+      this.stateManager = App.createSourceStateManager();
+      this.site = new DomainSetting(this.stateManager, DEFAULT_DOMAIN);
       this.requestManager = App.createRequestManager({
         requestsPerSecond: 4,
         requestTimeout: 2e4,
@@ -1001,7 +1126,7 @@ var _Sources = (() => {
           interceptRequest: async (request) => {
             request.headers = {
               ...request.headers ?? {},
-              "referer": `${DOMAIN}/`,
+              "referer": `${await this.site.load()}/`,
               "user-agent": await this.requestManager.getDefaultUserAgent()
             };
             return request;
@@ -1012,32 +1137,40 @@ var _Sources = (() => {
         }
       });
     }
+    async getSourceMenu() {
+      return this.site.menu();
+    }
     getMangaShareUrl(mangaId) {
-      return `${DOMAIN}/truyen-tranh/${mangaId}`;
+      return `${this.site.current}/truyen-tranh/${mangaId}`;
     }
     async getCloudflareBypassRequestAsync() {
+      const domain = await this.site.load();
       return App.createRequest({
-        url: DOMAIN,
+        url: domain,
         method: "GET",
         headers: {
-          "referer": `${DOMAIN}/`,
+          "referer": `${domain}/`,
           "user-agent": await this.requestManager.getDefaultUserAgent()
         }
       });
     }
     async getMangaDetails(mangaId) {
-      const $ = await this.loadPage(this.getMangaShareUrl(mangaId));
-      return parseMangaDetails($, mangaId, DOMAIN);
+      const domain = await this.site.load();
+      const $ = await this.loadPage(`${domain}/truyen-tranh/${mangaId}`);
+      return parseMangaDetails($, mangaId, domain);
     }
     async getChapters(mangaId) {
-      const $ = await this.loadPage(this.getMangaShareUrl(mangaId));
+      const domain = await this.site.load();
+      const $ = await this.loadPage(`${domain}/truyen-tranh/${mangaId}`);
       return parseChapters($);
     }
     async getChapterDetails(mangaId, chapterId) {
-      const $ = await this.loadPage(DOMAIN + toPath(chapterId));
-      return parseChapterDetails($, mangaId, chapterId, DOMAIN);
+      const domain = await this.site.load();
+      const $ = await this.loadPage(domain + toPath(chapterId));
+      return parseChapterDetails($, mangaId, chapterId, domain);
     }
     async getHomePageSections(sectionCallback) {
+      const domain = await this.site.load();
       const sections = HOME_SECTIONS.map((info) => App.createHomeSection({
         id: info.id,
         title: info.title,
@@ -1048,7 +1181,7 @@ var _Sources = (() => {
       await Promise.all(HOME_SECTIONS.map(async (info, index) => {
         const section = sections[index];
         try {
-          const page = await this.loadFirstList(info.paths.map((path) => DOMAIN + path));
+          const page = await this.loadFirstList(info.paths.map((path) => domain + path));
           section.items = page.results;
           section.containsMoreItems = page.nextUrl !== void 0;
         } catch (error) {
@@ -1062,28 +1195,54 @@ var _Sources = (() => {
     async getViewMoreItems(homepageSectionId, metadata) {
       const info = HOME_SECTIONS.find((section) => section.id === homepageSectionId);
       if (!info) return App.createPagedResults({ results: [] });
-      const urls = metadata?.nextUrl ? [metadata.nextUrl] : info.paths.map((path) => DOMAIN + path);
+      const domain = await this.site.load();
+      const urls = metadata?.nextUrl ? [metadata.nextUrl] : info.paths.map((path) => domain + path);
       return this.toPagedResults(await this.loadFirstList(urls));
     }
     async getSearchTags() {
-      const $ = await this.loadPage(DOMAIN);
-      return genreSection(parseTagLinks($, 'a[href*="/the-loai/"]', "/the-loai/"));
+      const domain = await this.site.load();
+      const [home, advanced] = await Promise.all([
+        this.loadPage(domain),
+        this.loadFirstPage(ADVANCED_SEARCH_PATHS.map((path) => domain + path)).catch(() => void 0)
+      ]);
+      const status = advanced ? readFilterOptions(advanced, "status") : [];
+      const sort = advanced ? readFilterOptions(advanced, "sort") : [];
+      return [
+        App.createTagSection({ id: "genres", label: "Th\u1EC3 lo\u1EA1i", tags: parseTagLinks(home, 'a[href*="/the-loai/"]', "/the-loai/") }),
+        optionSection("status", "T\xECnh tr\u1EA1ng", status.length > 0 ? status : DEFAULT_STATUS),
+        optionSection("sort", "S\u1EAFp x\u1EBFp", sort.length > 0 ? sort : DEFAULT_SORT)
+      ].filter((section) => section.tags.length > 0);
     }
     async supportsTagExclusion() {
-      return false;
+      return true;
     }
     async getSearchResults(query, metadata) {
-      let urls;
+      if (metadata?.nextUrl) return this.toPagedResults(await this.loadFirstList([metadata.nextUrl]));
+      const domain = await this.site.load();
       const title = query.title?.trim();
-      if (metadata?.nextUrl) {
-        urls = [metadata.nextUrl];
-      } else if (title) {
+      if (title) {
         const q = encodeURIComponent(title);
-        urls = [`${DOMAIN}/tim-kiem?q=${q}`, `${DOMAIN}/tim-kiem.html?q=${q}`];
-      } else if (query.includedTags && query.includedTags.length > 0) {
-        urls = [absoluteUrl(query.includedTags[0].id, DOMAIN)];
+        return this.toPagedResults(await this.loadFirstList([`${domain}/tim-kiem?q=${q}`, `${domain}/tim-kiem.html?q=${q}`]));
+      }
+      const included = genreTags(query.includedTags);
+      const excluded = genreTags(query.excludedTags);
+      const status = pickOption(query.includedTags, "status");
+      const sort = pickOption(query.includedTags, "sort");
+      let urls;
+      if (excluded.length > 0 || included.length > 1 || status !== void 0 || sort !== void 0) {
+        const params = [
+          `category=${included.map(genreCode).filter(Boolean).join(",")}`,
+          `notcategory=${excluded.map(genreCode).filter(Boolean).join(",")}`,
+          "country=0",
+          `status=${encodeURIComponent(status ?? "-1")}`,
+          "minchapter=0",
+          `sort=${encodeURIComponent(sort ?? "0")}`
+        ].join("&");
+        urls = ADVANCED_SEARCH_PATHS.map((path) => `${domain}${path}?${params}`);
+      } else if (included.length === 1) {
+        urls = [absoluteUrl(included[0].id, domain)];
       } else {
-        urls = LATEST_PATHS.map((path) => DOMAIN + path);
+        urls = LATEST_PATHS.map((path) => domain + path);
       }
       return this.toPagedResults(await this.loadFirstList(urls));
     }
@@ -1096,12 +1255,13 @@ var _Sources = (() => {
     /** Thử lần lượt từng URL, trả về trang đầu tiên có truyện. Lỗi Cloudflare báo ngay. */
     async loadFirstList(urls) {
       let lastError;
+      const domain = await this.site.load();
       for (const url of urls) {
         try {
           const $ = await this.loadPage(url);
-          const results = parseMangaList($, DOMAIN);
+          const results = parseMangaList($, domain);
           if (results.length === 0) continue;
-          const nextUrl = $(PAGER_SELECTOR).length > 0 ? parseNextPageUrl($, url, PAGER_SELECTOR) : parseNextPageByNumber($, url, DOMAIN);
+          const nextUrl = $(PAGER_SELECTOR).length > 0 ? parseNextPageUrl($, url, PAGER_SELECTOR) : parseNextPageByNumber($, url, domain);
           return { results, nextUrl: nextUrl !== url ? nextUrl : void 0 };
         } catch (error) {
           if (isCloudflareError(error)) throw error;
@@ -1110,6 +1270,19 @@ var _Sources = (() => {
       }
       if (lastError) throw lastError;
       return { results: [] };
+    }
+    /** Trang đầu tiên tải được (không lỗi HTTP) trong danh sách URL. */
+    async loadFirstPage(urls) {
+      let lastError = new Error("Kh\xF4ng c\xF3 URL");
+      for (const url of urls) {
+        try {
+          return await this.loadPage(url);
+        } catch (error) {
+          if (isCloudflareError(error)) throw error;
+          lastError = error;
+        }
+      }
+      throw lastError;
     }
     async loadPage(url) {
       const request = App.createRequest({ url, method: "GET" });

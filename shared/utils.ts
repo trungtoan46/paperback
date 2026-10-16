@@ -39,9 +39,24 @@ export function cleanText(text: string): string {
     return text.replace(/\s+/g, ' ').trim()
 }
 
-/** Đổi '5 phút trước', '2 giờ trước', '16/10/2026', '16/10/26', '12:30 16/10' sang Date. */
+/** Chữ của một khối, mỗi đoạn <p> một dòng (text() dính các đoạn vào nhau). */
+export function blockText($: CheerioAPI, $element: Cheerio<AnyNode>): string {
+    const paragraphs = $element.find('p').toArray()
+        .map(paragraph => cleanText($(paragraph).text()))
+        .filter(text => text.length > 0)
+    return paragraphs.length > 0 ? paragraphs.join('\n') : cleanText($element.text())
+}
+
+/** Đổi '5 phút trước', '2 giờ trước', '16/10/2026', '16/10/26', '12:30 16/10', '2026-10-16 08:30:00' sang Date. */
 export function parseTime(raw: string, now: number = Date.now()): Date {
     const text = raw.toLowerCase().trim()
+    // new Date('2026-10-16 08:30:00') ra Invalid Date trên Safari/JavaScriptCore nên tự tách.
+    const iso = text.match(/(\d{4})-(\d{1,2})-(\d{1,2})(?:[ t](\d{1,2}):(\d{2})(?::(\d{2}))?)?/)
+    if (iso) {
+        const [, year, month, day, hour, minute, second] = iso
+        return new Date(parseInt(year!), parseInt(month!) - 1, parseInt(day!),
+            parseInt(hour ?? '0'), parseInt(minute ?? '0'), parseInt(second ?? '0'))
+    }
     const full = text.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/)
     if (full) {
         let year = parseInt(full[3]!)

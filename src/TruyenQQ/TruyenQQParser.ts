@@ -7,6 +7,7 @@ import {
 } from '@paperback/types'
 import {
     absoluteUrl,
+    blockText,
     cleanText,
     genreSection,
     imageFrom,
@@ -109,7 +110,7 @@ export function parseMangaDetails($: CheerioAPI, mangaId: string, domain: string
 
     const author = cleanText($('li.author p.col-xs-9, li.author .org, .list-info .org, .list_info .org').first().text())
     const status = cleanText($('li.status p.col-xs-9, li.status .col-xs-9').first().text())
-    const desc = cleanText($('.story-detail-info, .detail-content, .story_introduction').first().text())
+    const desc = blockText($, $('.story-detail-info, .detail-content, .story_introduction').first())
     const tags = parseTagLinks($, 'ul.list01 li a, .list01 a', '/the-loai/')
 
     return App.createSourceManga({
@@ -157,8 +158,11 @@ export function parseChapters($: CheerioAPI): Chapter[] {
 export function parseChapterDetails($: CheerioAPI, mangaId: string, chapterId: string, domain: string): ChapterDetails {
     const pages: string[] = []
     $('.page-chapter img, #chapter_content img, .chapter_content img').each((_, element) => {
-        const url = imageFrom($(element), domain)
-        if (url && !pages.includes(url)) pages.push(url)
+        const $img = $(element)
+        // Ảnh thật nằm ở src; data-* chỉ dùng khi src là ảnh chờ. Bỏ ảnh quảng cáo stress.gif.
+        const src = $img.attr('src')?.trim()
+        const url = src && !src.startsWith('data:') ? absoluteUrl(src, domain) : imageFrom($img, domain)
+        if (url && !/stress\.gif/i.test(url) && !pages.includes(url)) pages.push(url)
     })
     return App.createChapterDetails({ id: chapterId, mangaId, pages })
 }

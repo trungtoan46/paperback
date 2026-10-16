@@ -44,7 +44,7 @@ import {
 const DEFAULT_DOMAIN = 'https://nettruyen.gg'
 
 export const NetTruyenInfo: SourceInfo = {
-    version: '1.1.1',
+    version: '1.1.2',
     name: 'NetTruyen',
     icon: 'icon.png',
     author: 'trungtoan46',
@@ -68,18 +68,17 @@ interface ListMetadata {
 // Trên app 0.8.11: '/', '/hot' và '/tim-truyen?status=-1&sort=...' trả về rỗng, còn '/tim-truyen?status=2'
 // và trang thể loại chạy được. Mỗi mục thử lần lượt nhiều URL; sort=11 là top tháng.
 const HOME_SECTIONS: HomeSectionInfo[] = [
-    { id: 'latest', title: 'Mới cập nhật', paths: ['/tim-truyen', '/tim-truyen?sort=0', '/'], type: HomeSectionType.singleRowNormal },
+    { id: 'latest', title: 'Mới cập nhật', paths: ['/tim-truyen', '/'], type: HomeSectionType.singleRowNormal },
     { id: 'hot', title: 'Top tháng', paths: ['/tim-truyen?sort=11', '/tim-truyen?status=-1&sort=11', '/hot'], type: HomeSectionType.singleRowNormal },
     { id: 'completed', title: 'Hoàn thành', paths: ['/tim-truyen?status=2'], type: HomeSectionType.singleRowNormal }
 ]
 
-// Dùng khi không đọc được lựa chọn từ trang /tim-truyen.
+// Dùng khi không đọc được lựa chọn từ trang /tim-truyen. 'Tất cả' và 'Ngày cập nhật' (mặc định) là không truyền tham số.
 const DEFAULT_STATUS: FilterOption[] = [
     { value: '1', label: 'Đang tiến hành' },
     { value: '2', label: 'Hoàn thành' }
 ]
 const DEFAULT_SORT: FilterOption[] = [
-    { value: '0', label: 'Ngày cập nhật' },
     { value: '15', label: 'Truyện mới' },
     { value: '10', label: 'Top all' },
     { value: '11', label: 'Top tháng' },
@@ -87,7 +86,8 @@ const DEFAULT_SORT: FilterOption[] = [
     { value: '13', label: 'Top ngày' },
     { value: '20', label: 'Theo dõi' },
     { value: '25', label: 'Bình luận' },
-    { value: '30', label: 'Số chapter' }
+    { value: '30', label: 'Số chapter' },
+    { value: '19', label: 'Top Follow' }
 ]
 
 export class NetTruyen implements SearchResultsProviding, MangaProviding, ChapterProviding,

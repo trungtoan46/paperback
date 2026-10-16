@@ -91,9 +91,9 @@ async function testTruyenQQ() {
     const f = name => fixture(`truyenqq/${name}`)
     const { source, requested } = loadSource('TruyenQQ', {
         [D]: f('list.html'),
-        [`${D}/truyen-moi-cap-nhat/trang-1`]: f('list.html'),
+        [`${D}/truyen-moi-cap-nhat`]: f('list.html'),
         [`${D}/truyen-moi-cap-nhat/trang-2`]: f('last-page.html'),
-        // '/truyen-yeu-thich/trang-1' không có (404) -> dùng URL dự phòng có '.html'
+        // '/truyen-yeu-thich' và '/truyen-yeu-thich/trang-1' không có (404) -> dùng URL dự phòng có '.html'
         [`${D}/truyen-yeu-thich/trang-1.html`]: f('last-page.html'),
         [`${D}/tim-kiem?q=h%E1%BA%A3i%20t%E1%BA%B7c`]: f('list.html'),
         [`${D}/the-loai/action-26`]: f('generic-list.html'),
@@ -298,7 +298,9 @@ async function testNetTruyen() {
         [1, '/truyen-tranh/van-co-chi-ton/chapter-1', -2]
     ])
     assert.strictEqual(ajax[0].time.getFullYear(), 2026)
-    assert.strictEqual(ajax[2].time.getFullYear(), 2024)
+    // 'yyyy-MM-dd HH:mm:ss' đọc theo giờ máy (Safari không tự đọc dạng này)
+    eq([ajax[2].time.getFullYear(), ajax[2].time.getMonth(), ajax[2].time.getDate(), ajax[2].time.getHours()], [2024, 0, 2, 3])
+    assert.strictEqual(unknownAuthor.mangaInfo.desc, 'Đoạn 1.\nĐoạn 2.')
 
     // Ảnh chương
     const details = await source.getChapterDetails('one-piece', chapters[0].id)

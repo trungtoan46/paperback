@@ -760,8 +760,24 @@ var _Sources = (() => {
   function cleanText(text) {
     return text.replace(/\s+/g, " ").trim();
   }
+  function blockText($, $element) {
+    const paragraphs = $element.find("p").toArray().map((paragraph) => cleanText($(paragraph).text())).filter((text) => text.length > 0);
+    return paragraphs.length > 0 ? paragraphs.join("\n") : cleanText($element.text());
+  }
   function parseTime(raw, now = Date.now()) {
     const text = raw.toLowerCase().trim();
+    const iso = text.match(/(\d{4})-(\d{1,2})-(\d{1,2})(?:[ t](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if (iso) {
+      const [, year, month, day, hour, minute, second] = iso;
+      return new Date(
+        parseInt(year),
+        parseInt(month) - 1,
+        parseInt(day),
+        parseInt(hour ?? "0"),
+        parseInt(minute ?? "0"),
+        parseInt(second ?? "0")
+      );
+    }
     const full = text.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
     if (full) {
       let year = parseInt(full[3]);
@@ -1081,7 +1097,7 @@ var _Sources = (() => {
     const otherNames = cleanText($("li.othername h2, .other-name").first().text()).split(/[;,]/).map((name) => name.trim()).filter((name) => name.length > 0 && name !== title);
     const author = cleanText($("li.author p.col-xs-9, li.author .org, .list-info .org, .list_info .org").first().text());
     const status = cleanText($("li.status p.col-xs-9, li.status .col-xs-9").first().text());
-    const desc = cleanText($(".story-detail-info, .detail-content, .story_introduction").first().text());
+    const desc = blockText($, $(".story-detail-info, .detail-content, .story_introduction").first());
     const tags = parseTagLinks($, "ul.list01 li a, .list01 a", "/the-loai/");
     return App.createSourceManga({
       id: mangaId,
@@ -1124,8 +1140,10 @@ var _Sources = (() => {
   function parseChapterDetails($, mangaId, chapterId, domain) {
     const pages = [];
     $(".page-chapter img, #chapter_content img, .chapter_content img").each((_, element) => {
-      const url = imageFrom($(element), domain);
-      if (url && !pages.includes(url)) pages.push(url);
+      const $img = $(element);
+      const src = $img.attr("src")?.trim();
+      const url = src && !src.startsWith("data:") ? absoluteUrl(src, domain) : imageFrom($img, domain);
+      if (url && !/stress\.gif/i.test(url) && !pages.includes(url)) pages.push(url);
     });
     return App.createChapterDetails({ id: chapterId, mangaId, pages });
   }
@@ -1133,7 +1151,7 @@ var _Sources = (() => {
   // src/TruyenQQ/TruyenQQ.ts
   var DEFAULT_DOMAIN = "https://truyenqqko.com";
   var TruyenQQInfo = {
-    version: "1.3.1",
+    version: "1.3.2",
     name: "TruyenQQ",
     icon: "icon.png",
     author: "trungtoan46",
@@ -1148,11 +1166,11 @@ var _Sources = (() => {
     ],
     intents: import_types.SourceIntents.MANGA_CHAPTERS | import_types.SourceIntents.HOMEPAGE_SECTIONS | import_types.SourceIntents.CLOUDFLARE_BYPASS_REQUIRED | import_types.SourceIntents.SETTINGS_UI
   };
-  var LATEST_PATHS = ["/truyen-moi-cap-nhat/trang-1", "/truyen-moi-cap-nhat/trang-1.html", "/"];
+  var LATEST_PATHS = ["/truyen-moi-cap-nhat", "/truyen-moi-cap-nhat/trang-1", "/truyen-moi-cap-nhat/trang-1.html", "/"];
   var ADVANCED_SEARCH_PATHS = ["/tim-kiem-nang-cao", "/tim-kiem-nang-cao.html"];
   var HOME_SECTIONS = [
     { id: "latest", title: "M\u1EDBi c\u1EADp nh\u1EADt", paths: LATEST_PATHS, type: import_types.HomeSectionType.singleRowNormal },
-    { id: "favorite", title: "Y\xEAu th\xEDch", paths: ["/truyen-yeu-thich/trang-1", "/truyen-yeu-thich/trang-1.html"], type: import_types.HomeSectionType.singleRowNormal }
+    { id: "favorite", title: "Y\xEAu th\xEDch", paths: ["/truyen-yeu-thich", "/truyen-yeu-thich/trang-1", "/truyen-yeu-thich/trang-1.html"], type: import_types.HomeSectionType.singleRowNormal }
   ];
   var DEFAULT_STATUS = [
     { value: "0", label: "\u0110ang ti\u1EBFn h\xE0nh" },
@@ -1175,7 +1193,8 @@ var _Sources = (() => {
       this.stateManager = App.createSourceStateManager();
       this.site = new DomainSetting(this.stateManager, DEFAULT_DOMAIN);
       this.requestManager = App.createRequestManager({
-        requestsPerSecond: 4,
+        // Web chặn khi gọi dồn dập (extension Mihon giới hạn 1 request / 2 giây).
+        requestsPerSecond: 1,
         requestTimeout: 2e4,
         interceptor: {
           interceptRequest: async (request) => {

@@ -6,6 +6,7 @@ import {
     SourceManga
 } from '@paperback/types'
 import {
+    blockText,
     cleanText,
     genreSection,
     imageFrom,
@@ -69,8 +70,10 @@ export function parseMangaDetails($: CheerioAPI, mangaId: string, domain: string
     const rawAuthor = cleanText($detail.find('li.author p.col-xs-8, li.author a').first().text())
     const author = rawAuthor.toLowerCase() === 'đang cập nhật' ? '' : rawAuthor
     const status = cleanText($detail.find('li.status p.col-xs-8, li.status p:not(.name)').first().text())
-    const $desc = $detail.find('.detail-content p, .detail-content .shortened')
-    const desc = cleanText($desc.length > 0 ? $desc.text() : $detail.find('.detail-content').text().replace(/^\s*Nội dung/i, ''))
+    const $desc = $detail.find('.detail-content .shortened').first().clone()
+    const $content = $desc.length > 0 ? $desc : $detail.find('.detail-content').first().clone()
+    $content.find('h2, h3, .list-title, a.morelink, script, style').remove()
+    const desc = blockText($, $content)
     const tags = parseTagLinks($, '#item-detail li.kind a, li.kind a', '/tim-truyen/')
 
     return App.createSourceManga({
@@ -135,38 +138,39 @@ export function parseChapterApi(json: string, mangaId: string): Chapter[] {
     const list: ApiChapter[] = Array.isArray(parsed) ? parsed : (parsed?.data ?? parsed?.chapters ?? [])
     if (!Array.isArray(list)) return []
 
-    const chapters: Chapter[] = []
+    const items: { path: string, name: string, chapNum: number, time: Date }[] = []
     list.forEach((item, index) => {
         const slug = item.chapter_slug ?? item.slug
         const path = item.url ? toPath(item.url) : slug ? `/truyen-tranh/${mangaId}/${slug}` : undefined
         if (!path) return
         const name = cleanText(item.chapter_name ?? item.name ?? '')
         const num = item.chapter_num !== undefined ? parseFloat(String(item.chapter_num)) : NaN
-        chapters.push(App.createChapter({
-            id: path,
-            chapNum: !isNaN(num) ? num : parseChapterNumber(path, name) ?? list.length - index,
-            name: name || undefined,
-            langCode: 'vi',
-            time: item.updated_at ? parseApiTime(item.updated_at) : new Date(),
-            sortingIndex: 0
-        }))
+        items.push({
+            path,
+            name,
+            chapNum: !isNaN(num) && num >= 0 ? num : parseChapterNumber(path, name) ?? list.length - index,
+            // API trả 'yyyy-MM-dd HH:mm:ss'.
+            time: item.updated_at ? parseTime(item.updated_at) : new Date()
+        })
     })
     // Không chắc API trả mới nhất trước hay cũ nhất trước: sắp theo số chương, mới nhất trước.
-    chapters.sort((a, b) => b.chapNum - a.chapNum)
-    chapters.forEach((chapter, index) => { chapter.sortingIndex = -index })
-    return chapters
-}
-
-function parseApiTime(value: string): Date {
-    const iso = new Date(value)
-    return isNaN(iso.getTime()) ? parseTime(value) : iso
+    items.sort((a, b) => b.chapNum - a.chapNum)
+    return items.map((item, index) => App.createChapter({
+        id: item.path,
+        chapNum: item.chapNum,
+        name: item.name || undefined,
+        langCode: 'vi',
+        time: item.time,
+        sortingIndex: -index
+    }))
 }
 
 export function parseChapterDetails($: CheerioAPI, mangaId: string, chapterId: string, domain: string): ChapterDetails {
     const pages: string[] = []
-    $('.reading-detail .page-chapter img, .page-chapter img').each((_, element) => {
+    $('#chapter-content img, .reading-detail .page-chapter img, .chapter-content img, .page-chapter img').each((_, element) => {
         const url = imageFrom($(element), domain)
-        if (url && !pages.includes(url)) pages.push(url)
+        // Bỏ logo của web chèn giữa các trang.
+        if (url && !/\/assets\/images\/nettruyen[^/]*\.(webp|png|jpe?g)$/i.test(url) && !pages.includes(url)) pages.push(url)
     })
     return App.createChapterDetails({ id: chapterId, mangaId, pages })
 }

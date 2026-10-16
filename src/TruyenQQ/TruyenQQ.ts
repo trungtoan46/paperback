@@ -46,7 +46,7 @@ import {
 const DEFAULT_DOMAIN = 'https://truyenqqko.com'
 
 export const TruyenQQInfo: SourceInfo = {
-    version: '1.3.1',
+    version: '1.3.2',
     name: 'TruyenQQ',
     icon: 'icon.png',
     author: 'trungtoan46',
@@ -68,11 +68,11 @@ interface ListMetadata {
 }
 
 // Web đã bỏ đuôi '.html' (truyenqqko.com); giữ URL cũ làm dự phòng, thử lần lượt tới khi có truyện.
-const LATEST_PATHS = ['/truyen-moi-cap-nhat/trang-1', '/truyen-moi-cap-nhat/trang-1.html', '/']
+const LATEST_PATHS = ['/truyen-moi-cap-nhat', '/truyen-moi-cap-nhat/trang-1', '/truyen-moi-cap-nhat/trang-1.html', '/']
 const ADVANCED_SEARCH_PATHS = ['/tim-kiem-nang-cao', '/tim-kiem-nang-cao.html']
 const HOME_SECTIONS: HomeSectionInfo[] = [
     { id: 'latest', title: 'Mới cập nhật', paths: LATEST_PATHS, type: HomeSectionType.singleRowNormal },
-    { id: 'favorite', title: 'Yêu thích', paths: ['/truyen-yeu-thich/trang-1', '/truyen-yeu-thich/trang-1.html'], type: HomeSectionType.singleRowNormal }
+    { id: 'favorite', title: 'Yêu thích', paths: ['/truyen-yeu-thich', '/truyen-yeu-thich/trang-1', '/truyen-yeu-thich/trang-1.html'], type: HomeSectionType.singleRowNormal }
 ]
 
 // Dùng khi không đọc được lựa chọn từ trang tìm kiếm nâng cao.
@@ -103,7 +103,8 @@ export class TruyenQQ implements SearchResultsProviding, MangaProviding, Chapter
     private readonly site = new DomainSetting(this.stateManager, DEFAULT_DOMAIN)
 
     readonly requestManager = App.createRequestManager({
-        requestsPerSecond: 4,
+        // Web chặn khi gọi dồn dập (extension Mihon giới hạn 1 request / 2 giây).
+        requestsPerSecond: 1,
         requestTimeout: 20000,
         interceptor: {
             interceptRequest: async (request: Request): Promise<Request> => {

@@ -760,8 +760,24 @@ var _Sources = (() => {
   function cleanText(text) {
     return text.replace(/\s+/g, " ").trim();
   }
+  function blockText($, $element) {
+    const paragraphs = $element.find("p").toArray().map((paragraph) => cleanText($(paragraph).text())).filter((text) => text.length > 0);
+    return paragraphs.length > 0 ? paragraphs.join("\n") : cleanText($element.text());
+  }
   function parseTime(raw, now = Date.now()) {
     const text = raw.toLowerCase().trim();
+    const iso = text.match(/(\d{4})-(\d{1,2})-(\d{1,2})(?:[ t](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if (iso) {
+      const [, year, month, day, hour, minute, second] = iso;
+      return new Date(
+        parseInt(year),
+        parseInt(month) - 1,
+        parseInt(day),
+        parseInt(hour ?? "0"),
+        parseInt(minute ?? "0"),
+        parseInt(second ?? "0")
+      );
+    }
     const full = text.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
     if (full) {
       let year = parseInt(full[3]);
@@ -1050,8 +1066,10 @@ var _Sources = (() => {
     const rawAuthor = cleanText($detail.find("li.author p.col-xs-8, li.author a").first().text());
     const author = rawAuthor.toLowerCase() === "\u0111ang c\u1EADp nh\u1EADt" ? "" : rawAuthor;
     const status = cleanText($detail.find("li.status p.col-xs-8, li.status p:not(.name)").first().text());
-    const $desc = $detail.find(".detail-content p, .detail-content .shortened");
-    const desc = cleanText($desc.length > 0 ? $desc.text() : $detail.find(".detail-content").text().replace(/^\s*Nội dung/i, ""));
+    const $desc = $detail.find(".detail-content .shortened").first().clone();
+    const $content = $desc.length > 0 ? $desc : $detail.find(".detail-content").first().clone();
+    $content.find("h2, h3, .list-title, a.morelink, script, style").remove();
+    const desc = blockText($, $content);
     const tags = parseTagLinks($, "#item-detail li.kind a, li.kind a", "/tim-truyen/");
     return App.createSourceManga({
       id: mangaId,
@@ -1095,37 +1113,36 @@ var _Sources = (() => {
     const parsed = JSON.parse(json);
     const list = Array.isArray(parsed) ? parsed : parsed?.data ?? parsed?.chapters ?? [];
     if (!Array.isArray(list)) return [];
-    const chapters = [];
+    const items = [];
     list.forEach((item, index) => {
       const slug = item.chapter_slug ?? item.slug;
       const path = item.url ? toPath(item.url) : slug ? `/truyen-tranh/${mangaId}/${slug}` : void 0;
       if (!path) return;
       const name = cleanText(item.chapter_name ?? item.name ?? "");
       const num = item.chapter_num !== void 0 ? parseFloat(String(item.chapter_num)) : NaN;
-      chapters.push(App.createChapter({
-        id: path,
-        chapNum: !isNaN(num) ? num : parseChapterNumber(path, name) ?? list.length - index,
-        name: name || void 0,
-        langCode: "vi",
-        time: item.updated_at ? parseApiTime(item.updated_at) : /* @__PURE__ */ new Date(),
-        sortingIndex: 0
-      }));
+      items.push({
+        path,
+        name,
+        chapNum: !isNaN(num) && num >= 0 ? num : parseChapterNumber(path, name) ?? list.length - index,
+        // API trả 'yyyy-MM-dd HH:mm:ss'.
+        time: item.updated_at ? parseTime(item.updated_at) : /* @__PURE__ */ new Date()
+      });
     });
-    chapters.sort((a, b) => b.chapNum - a.chapNum);
-    chapters.forEach((chapter, index) => {
-      chapter.sortingIndex = -index;
-    });
-    return chapters;
-  }
-  function parseApiTime(value) {
-    const iso = new Date(value);
-    return isNaN(iso.getTime()) ? parseTime(value) : iso;
+    items.sort((a, b) => b.chapNum - a.chapNum);
+    return items.map((item, index) => App.createChapter({
+      id: item.path,
+      chapNum: item.chapNum,
+      name: item.name || void 0,
+      langCode: "vi",
+      time: item.time,
+      sortingIndex: -index
+    }));
   }
   function parseChapterDetails($, mangaId, chapterId, domain) {
     const pages = [];
-    $(".reading-detail .page-chapter img, .page-chapter img").each((_, element) => {
+    $("#chapter-content img, .reading-detail .page-chapter img, .chapter-content img, .page-chapter img").each((_, element) => {
       const url = imageFrom($(element), domain);
-      if (url && !pages.includes(url)) pages.push(url);
+      if (url && !/\/assets\/images\/nettruyen[^/]*\.(webp|png|jpe?g)$/i.test(url) && !pages.includes(url)) pages.push(url);
     });
     return App.createChapterDetails({ id: chapterId, mangaId, pages });
   }
@@ -1133,7 +1150,7 @@ var _Sources = (() => {
   // src/NetTruyen/NetTruyen.ts
   var DEFAULT_DOMAIN = "https://nettruyen.gg";
   var NetTruyenInfo = {
-    version: "1.1.1",
+    version: "1.1.2",
     name: "NetTruyen",
     icon: "icon.png",
     author: "trungtoan46",
@@ -1149,7 +1166,7 @@ var _Sources = (() => {
     intents: import_types.SourceIntents.MANGA_CHAPTERS | import_types.SourceIntents.HOMEPAGE_SECTIONS | import_types.SourceIntents.CLOUDFLARE_BYPASS_REQUIRED | import_types.SourceIntents.SETTINGS_UI
   };
   var HOME_SECTIONS = [
-    { id: "latest", title: "M\u1EDBi c\u1EADp nh\u1EADt", paths: ["/tim-truyen", "/tim-truyen?sort=0", "/"], type: import_types.HomeSectionType.singleRowNormal },
+    { id: "latest", title: "M\u1EDBi c\u1EADp nh\u1EADt", paths: ["/tim-truyen", "/"], type: import_types.HomeSectionType.singleRowNormal },
     { id: "hot", title: "Top th\xE1ng", paths: ["/tim-truyen?sort=11", "/tim-truyen?status=-1&sort=11", "/hot"], type: import_types.HomeSectionType.singleRowNormal },
     { id: "completed", title: "Ho\xE0n th\xE0nh", paths: ["/tim-truyen?status=2"], type: import_types.HomeSectionType.singleRowNormal }
   ];
@@ -1158,7 +1175,6 @@ var _Sources = (() => {
     { value: "2", label: "Ho\xE0n th\xE0nh" }
   ];
   var DEFAULT_SORT = [
-    { value: "0", label: "Ng\xE0y c\u1EADp nh\u1EADt" },
     { value: "15", label: "Truy\u1EC7n m\u1EDBi" },
     { value: "10", label: "Top all" },
     { value: "11", label: "Top th\xE1ng" },
@@ -1166,7 +1182,8 @@ var _Sources = (() => {
     { value: "13", label: "Top ng\xE0y" },
     { value: "20", label: "Theo d\xF5i" },
     { value: "25", label: "B\xECnh lu\u1EADn" },
-    { value: "30", label: "S\u1ED1 chapter" }
+    { value: "30", label: "S\u1ED1 chapter" },
+    { value: "19", label: "Top Follow" }
   ];
   var NetTruyen = class {
     constructor(cheerio) {

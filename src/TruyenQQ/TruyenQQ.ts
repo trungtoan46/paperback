@@ -37,10 +37,10 @@ import {
 } from './TruyenQQParser'
 
 // TruyenQQ hay đổi tên miền; khi web đổi thì sửa dòng này rồi tăng version.
-const DOMAIN = 'https://truyenqqno.com'
+const DOMAIN = 'https://truyenqqko.com'
 
 export const TruyenQQInfo: SourceInfo = {
-    version: '1.2.0',
+    version: '1.2.1',
     name: 'TruyenQQ',
     icon: 'icon.png',
     author: 'trungtoan46',

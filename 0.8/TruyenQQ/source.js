@@ -930,9 +930,9 @@ var _Sources = (() => {
   }
 
   // src/TruyenQQ/TruyenQQ.ts
-  var DOMAIN = "https://truyenqqno.com";
+  var DOMAIN = "https://truyenqqko.com";
   var TruyenQQInfo = {
-    version: "1.2.0",
+    version: "1.2.1",
     name: "TruyenQQ",
     icon: "icon.png",
     author: "trungtoan46",

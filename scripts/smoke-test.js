@@ -61,7 +61,7 @@ async function homeSections(source) {
 const query = (fields = {}) => ({ includedTags: [], excludedTags: [], parameters: {}, ...fields })
 
 async function testTruyenQQ() {
-    const D = 'https://truyenqqno.com'
+    const D = 'https://truyenqqko.com'
     const f = name => fixture(`truyenqq/${name}`)
     const { source, requested } = loadSource('TruyenQQ', {
         [D]: f('list.html'),

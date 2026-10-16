@@ -760,6 +760,10 @@ var _Sources = (() => {
   function cleanText(text) {
     return text.replace(/\s+/g, " ").trim();
   }
+  function chapterTitle(name) {
+    const text = cleanText(name);
+    return !text || /^(chương|chapter|chap|ch\.?)\s*\d+(?:[.,]\d+)?$/i.test(text) ? void 0 : text;
+  }
   function blockText($, $element) {
     const paragraphs = $element.find("p").toArray().map((paragraph) => cleanText($(paragraph).text())).filter((text) => text.length > 0);
     return paragraphs.length > 0 ? paragraphs.join("\n") : cleanText($element.text());
@@ -1101,7 +1105,7 @@ var _Sources = (() => {
       chapters.push(App.createChapter({
         id,
         chapNum: parseChapterNumber(href, name) ?? $rows.length - index,
-        name: name || void 0,
+        name: chapterTitle(name),
         langCode: "vi",
         time: parseTime(cleanText($row.find(".col-xs-4, .no-wrap").first().text())),
         sortingIndex: -index
@@ -1132,7 +1136,7 @@ var _Sources = (() => {
     return items.map((item, index) => App.createChapter({
       id: item.path,
       chapNum: item.chapNum,
-      name: item.name || void 0,
+      name: chapterTitle(item.name),
       langCode: "vi",
       time: item.time,
       sortingIndex: -index
@@ -1150,7 +1154,7 @@ var _Sources = (() => {
   // src/NetTruyen/NetTruyen.ts
   var DEFAULT_DOMAIN = "https://nettruyen.gg";
   var NetTruyenInfo = {
-    version: "1.1.2",
+    version: "1.1.3",
     name: "NetTruyen",
     icon: "icon.png",
     author: "trungtoan46",
@@ -1232,16 +1236,22 @@ var _Sources = (() => {
     }
     async getChapters(mangaId) {
       const domain = await this.site.load();
-      const $ = await this.loadPage(`${domain}/truyen-tranh/${mangaId}`);
-      const chapters = parseChapters($);
-      if (chapters.length > 0) return chapters;
       const url = `${domain}/Comic/Services/ComicService.asmx/ChapterList?slug=${encodeURIComponent(mangaId)}`;
-      const response = await this.fetch(url, { "x-requested-with": "XMLHttpRequest" });
+      let apiError;
       try {
-        return parseChapterApi(response.data ?? "", mangaId);
-      } catch {
+        const response = await this.fetch(url, { "x-requested-with": "XMLHttpRequest" });
+        const chapters2 = parseChapterApi(response.data ?? "", mangaId);
+        if (chapters2.length > 0) return chapters2;
+      } catch (error) {
+        if (isCloudflareError(error)) throw error;
+        apiError = error;
+        console.log(`NetTruyen: API danh s\xE1ch ch\u01B0\u01A1ng l\u1ED7i, d\xF9ng danh s\xE1ch trong trang: ${error}`);
+      }
+      const chapters = parseChapters(await this.loadPage(`${domain}/truyen-tranh/${mangaId}`));
+      if (chapters.length === 0 && apiError) {
         throw new Error("NetTruyen: kh\xF4ng \u0111\u1ECDc \u0111\u01B0\u1EE3c danh s\xE1ch ch\u01B0\u01A1ng (web c\xF3 th\u1EC3 \u0111\xE3 \u0111\u1ED5i giao di\u1EC7n)");
       }
+      return chapters;
     }
     async getChapterDetails(mangaId, chapterId) {
       const domain = await this.site.load();

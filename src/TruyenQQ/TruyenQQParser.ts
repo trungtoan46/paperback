@@ -8,6 +8,7 @@ import {
 import {
     absoluteUrl,
     blockText,
+    chapterTitle,
     cleanText,
     genreSection,
     imageFrom,
@@ -146,7 +147,7 @@ export function parseChapters($: CheerioAPI): Chapter[] {
         chapters.push(App.createChapter({
             id,
             chapNum: parseChapterNumber(href, name) ?? $items.length - index,
-            name: name || undefined,
+            name: chapterTitle(name),
             langCode: 'vi',
             time: parseTime(cleanText($item.find('.time-chap').first().text())),
             sortingIndex: -index

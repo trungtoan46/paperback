@@ -7,6 +7,7 @@ import {
 } from '@paperback/types'
 import {
     blockText,
+    chapterTitle,
     cleanText,
     genreSection,
     imageFrom,
@@ -109,7 +110,7 @@ export function parseChapters($: CheerioAPI): Chapter[] {
         chapters.push(App.createChapter({
             id,
             chapNum: parseChapterNumber(href, name) ?? $rows.length - index,
-            name: name || undefined,
+            name: chapterTitle(name),
             langCode: 'vi',
             time: parseTime(cleanText($row.find('.col-xs-4, .no-wrap').first().text())),
             sortingIndex: -index
@@ -158,7 +159,7 @@ export function parseChapterApi(json: string, mangaId: string): Chapter[] {
     return items.map((item, index) => App.createChapter({
         id: item.path,
         chapNum: item.chapNum,
-        name: item.name || undefined,
+        name: chapterTitle(item.name),
         langCode: 'vi',
         time: item.time,
         sortingIndex: -index

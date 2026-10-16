@@ -39,6 +39,12 @@ export function cleanText(text: string): string {
     return text.replace(/\s+/g, ' ').trim()
 }
 
+/** Tên chương chỉ là 'Chapter 12' / 'Chương 12' thì bỏ, vì app đã hiện 'Ch. 12'. */
+export function chapterTitle(name: string): string | undefined {
+    const text = cleanText(name)
+    return !text || /^(chương|chapter|chap|ch\.?)\s*\d+(?:[.,]\d+)?$/i.test(text) ? undefined : text
+}
+
 /** Chữ của một khối, mỗi đoạn <p> một dòng (text() dính các đoạn vào nhau). */
 export function blockText($: CheerioAPI, $element: Cheerio<AnyNode>): string {
     const paragraphs = $element.find('p').toArray()

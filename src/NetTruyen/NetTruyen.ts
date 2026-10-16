@@ -24,6 +24,7 @@ import {
 import {
     absoluteUrl,
     cloudflareError,
+    isCloudflareError,
     parseNextPageUrl,
     parseTagLinks,
     toPath
@@ -44,7 +45,7 @@ import {
 const DEFAULT_DOMAIN = 'https://nettruyen.gg'
 
 export const NetTruyenInfo: SourceInfo = {
-    version: '1.1.2',
+    version: '1.1.3',
     name: 'NetTruyen',
     icon: 'icon.png',
     author: 'trungtoan46',
@@ -144,18 +145,24 @@ export class NetTruyen implements SearchResultsProviding, MangaProviding, Chapte
 
     async getChapters(mangaId: string): Promise<Chapter[]> {
         const domain = await this.site.load()
-        const $ = await this.loadPage(`${domain}/truyen-tranh/${mangaId}`)
-        const chapters = parseChapters($)
-        if (chapters.length > 0) return chapters
-
-        // Bản giao diện mới tải danh sách chương bằng AJAX.
+        // Trang truyện chỉ có ~20 chương mới nhất (phần còn lại web tải bằng AJAX), nên lấy đủ qua API trước.
         const url = `${domain}/Comic/Services/ComicService.asmx/ChapterList?slug=${encodeURIComponent(mangaId)}`
-        const response = await this.fetch(url, { 'x-requested-with': 'XMLHttpRequest' })
+        let apiError: unknown
         try {
-            return parseChapterApi(response.data ?? '', mangaId)
-        } catch {
+            const response = await this.fetch(url, { 'x-requested-with': 'XMLHttpRequest' })
+            const chapters = parseChapterApi(response.data ?? '', mangaId)
+            if (chapters.length > 0) return chapters
+        } catch (error) {
+            if (isCloudflareError(error)) throw error
+            apiError = error
+            console.log(`NetTruyen: API danh sách chương lỗi, dùng danh sách trong trang: ${error}`)
+        }
+
+        const chapters = parseChapters(await this.loadPage(`${domain}/truyen-tranh/${mangaId}`))
+        if (chapters.length === 0 && apiError) {
             throw new Error('NetTruyen: không đọc được danh sách chương (web có thể đã đổi giao diện)')
         }
+        return chapters
     }
 
     async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {

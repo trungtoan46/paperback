@@ -4,8 +4,8 @@ Nguồn đọc truyện cho app Paperback (iOS), API 0.8:
 
 | Nguồn | Web | Version |
 |---|---|---|
-| TruyenQQ | https://truyenqqko.com | 1.3.2 |
-| NetTruyen | https://nettruyen.gg | 1.1.2 |
+| TruyenQQ | https://truyenqqko.com | 1.3.3 |
+| NetTruyen | https://nettruyen.gg | 1.1.3 |
 | Góc Truyện Tranh Vui | https://goctruyentranhvui31.com | 1.0.0 |
 
 Mỗi nguồn có: trang chủ, tìm theo tên, bộ lọc (thể loại, tình trạng, sắp xếp), chi tiết truyện,

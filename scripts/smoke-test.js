@@ -174,7 +174,8 @@ async function testTruyenQQ() {
     eq(chapters.map(c => c.chapNum), [1100, 1099.5, 1])
     eq(chapters.map(c => c.sortingIndex), [0, -1, -2])
     assert.strictEqual(chapters[0].id, '/truyen-tranh/dao-hai-tac-128-chap-1100')
-    assert.strictEqual(chapters[0].name, 'Chương 1100')
+    // Tên chỉ là 'Chương N' thì bỏ (app đã hiện 'Ch. N'), tên có tiêu đề thì giữ
+    eq(chapters.map(c => c.name ?? null), [null, null, 'Chương 1: Romance Dawn'])
     assert.ok(Date.now() - chapters[0].time.getTime() >= 2 * 3600 * 1000 - 1000)
     assert.strictEqual(chapters[1].time.getFullYear(), 2026)
     assert.strictEqual(chapters[1].time.getMonth(), 9)
@@ -221,12 +222,16 @@ async function testNetTruyen() {
         [`${D}/tim-truyen/action-95`]: f('last-page.html'),
         [`${D}/truyen-tranh/one-piece`]: f('manga.html'),
         [`${D}/truyen-tranh/van-co-chi-ton`]: f('manga-ajax.html'),
+        // Trang chỉ có vài chương mới nhất; API trả đủ từ chương 1
+        [`${D}/truyen-tranh/dai-phung`]: f('manga.html'),
+        [`${D}/Comic/Services/ComicService.asmx/ChapterList?slug=dai-phung`]: f('chapters-full.json'),
+        [`${D}/Comic/Services/ComicService.asmx/ChapterList?slug=cf-test`]: { status: 503, data: 'Just a moment...' },
         [`${D}/Comic/Services/ComicService.asmx/ChapterList?slug=van-co-chi-ton`]: f('chapters.json'),
         [`${D}/truyen-tranh/one-piece/chapter-1100/123456`]: f('chapter.html'),
         [`${D}/tim-truyen/action-95?status=2&sort=11`]: f('last-page.html'),
         [`${D}/tim-truyen?sort=13`]: f('hot.html'),
         ['https://nt.example/truyen-tranh/one-piece']: f('manga.html')
-    })
+    }, { quiet: true })
 
     // Trang chủ: bỏ slider đề cử, ảnh lazy-load, link tương đối
     const sections = await homeSections(source)
@@ -282,7 +287,16 @@ async function testNetTruyen() {
     assert.strictEqual(unknownAuthor.mangaInfo.status, 'Ongoing')
     assert.strictEqual(unknownAuthor.mangaInfo.author, 'Đang cập nhật')
 
-    // Chương trong HTML
+    // Danh sách chương lấy đủ qua API dù trang truyện chỉ có vài chương
+    const full = await source.getChapters('dai-phung')
+    eq(full.map(c => [c.id, c.chapNum, c.name ?? null, c.sortingIndex]), [
+        ['/truyen-tranh/dai-phung/chapter-685', 685, null, 0],
+        ['/truyen-tranh/dai-phung/chapter-684', 684, 'Chapter 684: Đại chiến', -1],
+        ['/truyen-tranh/dai-phung/chapter-1', 1, null, -2]
+    ])
+    await assert.rejects(source.getChapters('cf-test'), /Cloudflare/)
+
+    // API lỗi (404) -> dùng danh sách chương trong HTML
     const chapters = await source.getChapters('one-piece')
     eq(chapters.map(c => c.chapNum), [1100, 1099.5, 1])
     eq(chapters.map(c => c.sortingIndex), [0, -1, -2])

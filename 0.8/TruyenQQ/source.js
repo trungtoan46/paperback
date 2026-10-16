@@ -760,6 +760,10 @@ var _Sources = (() => {
   function cleanText(text) {
     return text.replace(/\s+/g, " ").trim();
   }
+  function chapterTitle(name) {
+    const text = cleanText(name);
+    return !text || /^(chương|chapter|chap|ch\.?)\s*\d+(?:[.,]\d+)?$/i.test(text) ? void 0 : text;
+  }
   function blockText($, $element) {
     const paragraphs = $element.find("p").toArray().map((paragraph) => cleanText($(paragraph).text())).filter((text) => text.length > 0);
     return paragraphs.length > 0 ? paragraphs.join("\n") : cleanText($element.text());
@@ -1129,7 +1133,7 @@ var _Sources = (() => {
       chapters.push(App.createChapter({
         id,
         chapNum: parseChapterNumber(href, name) ?? $items.length - index,
-        name: name || void 0,
+        name: chapterTitle(name),
         langCode: "vi",
         time: parseTime(cleanText($item.find(".time-chap").first().text())),
         sortingIndex: -index
@@ -1151,7 +1155,7 @@ var _Sources = (() => {
   // src/TruyenQQ/TruyenQQ.ts
   var DEFAULT_DOMAIN = "https://truyenqqko.com";
   var TruyenQQInfo = {
-    version: "1.3.2",
+    version: "1.3.3",
     name: "TruyenQQ",
     icon: "icon.png",
     author: "trungtoan46",

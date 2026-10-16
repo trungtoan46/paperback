@@ -46,7 +46,7 @@ import {
 const DEFAULT_DOMAIN = 'https://truyenqqko.com'
 
 export const TruyenQQInfo: SourceInfo = {
-    version: '1.3.2',
+    version: '1.3.3',
     name: 'TruyenQQ',
     icon: 'icon.png',
     author: 'trungtoan46',

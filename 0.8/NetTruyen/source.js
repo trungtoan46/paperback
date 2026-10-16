@@ -965,7 +965,7 @@ var _Sources = (() => {
   // src/NetTruyen/NetTruyen.ts
   var DOMAIN = "https://nettruyen.gg";
   var NetTruyenInfo = {
-    version: "1.0.0",
+    version: "1.0.1",
     name: "NetTruyen",
     icon: "icon.png",
     author: "trungtoan46",
@@ -981,8 +981,8 @@ var _Sources = (() => {
     intents: import_types.SourceIntents.MANGA_CHAPTERS | import_types.SourceIntents.HOMEPAGE_SECTIONS | import_types.SourceIntents.CLOUDFLARE_BYPASS_REQUIRED
   };
   var HOME_SECTIONS = [
-    { id: "latest", title: "M\u1EDBi c\u1EADp nh\u1EADt", path: "/", type: import_types.HomeSectionType.singleRowNormal },
-    { id: "hot", title: "Truy\u1EC7n hot", path: "/hot", type: import_types.HomeSectionType.singleRowNormal },
+    { id: "latest", title: "M\u1EDBi c\u1EADp nh\u1EADt", path: "/tim-truyen?status=-1&sort=0", type: import_types.HomeSectionType.singleRowNormal },
+    { id: "hot", title: "Top th\xE1ng", path: "/tim-truyen?status=-1&sort=11", type: import_types.HomeSectionType.singleRowNormal },
     { id: "completed", title: "Ho\xE0n th\xE0nh", path: "/tim-truyen?status=2", type: import_types.HomeSectionType.singleRowNormal }
   ];
   var NetTruyen = class {

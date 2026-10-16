@@ -41,7 +41,7 @@ import {
 const DOMAIN = 'https://nettruyen.gg'
 
 export const NetTruyenInfo: SourceInfo = {
-    version: '1.0.0',
+    version: '1.0.1',
     name: 'NetTruyen',
     icon: 'icon.png',
     author: 'trungtoan46',
@@ -61,9 +61,11 @@ interface ListMetadata {
     nextUrl?: string
 }
 
+// Trang chủ '/' và '/hot' trả về rỗng trên nettruyen.gg (thử trên app 0.8.11),
+// nên mọi mục đều dùng /tim-truyen. sort: 0 = ngày cập nhật, 11 = top tháng.
 const HOME_SECTIONS = [
-    { id: 'latest', title: 'Mới cập nhật', path: '/', type: HomeSectionType.singleRowNormal },
-    { id: 'hot', title: 'Truyện hot', path: '/hot', type: HomeSectionType.singleRowNormal },
+    { id: 'latest', title: 'Mới cập nhật', path: '/tim-truyen?status=-1&sort=0', type: HomeSectionType.singleRowNormal },
+    { id: 'hot', title: 'Top tháng', path: '/tim-truyen?status=-1&sort=11', type: HomeSectionType.singleRowNormal },
     { id: 'completed', title: 'Hoàn thành', path: '/tim-truyen?status=2', type: HomeSectionType.singleRowNormal }
 ]
 

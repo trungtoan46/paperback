@@ -144,10 +144,9 @@ async function testNetTruyen() {
     const D = 'https://nettruyen.gg'
     const f = name => fixture(`nettruyen/${name}`)
     const { source, requested } = loadSource('NetTruyen', {
-        [`${D}/`]: f('home.html'),
-        [`${D}/?page=2`]: f('last-page.html'),
-        [`${D}/hot`]: f('hot.html'),
-        [`${D}/hot?page=2`]: f('last-page.html'),
+        [`${D}/tim-truyen?status=-1&sort=0`]: f('home.html'),
+        [`${D}/tim-truyen?status=-1&sort=0&page=2`]: f('last-page.html'),
+        [`${D}/tim-truyen?status=-1&sort=11`]: f('hot.html'),
         [`${D}/tim-truyen?status=2`]: f('last-page.html'),
         [`${D}/tim-truyen`]: f('genres.html'),
         [`${D}/tim-truyen?keyword=one%20piece`]: f('home.html'),
@@ -173,12 +172,12 @@ async function testNetTruyen() {
 
     // Phân trang: link tuyệt đối và link chỉ có query ('?page=2')
     const latest1 = await source.getViewMoreItems('latest', undefined)
-    eq(latest1.metadata, { nextUrl: `${D}/?page=2` })
+    eq(latest1.metadata, { nextUrl: `${D}/tim-truyen?status=-1&sort=0&page=2` })
     const latest2 = await source.getViewMoreItems('latest', latest1.metadata)
     assert.strictEqual(latest2.results[0].mangaId, 'cuoi-cung')
     assert.strictEqual(latest2.metadata, undefined)
     const hot1 = await source.getViewMoreItems('hot', undefined)
-    eq(hot1.metadata, { nextUrl: `${D}/hot?page=2` })
+    eq(hot1.metadata, { nextUrl: `${D}/tim-truyen?status=-1&sort=11&page=2` })
 
     // Tìm kiếm và thể loại
     const search = await source.getSearchResults(query({ title: 'one piece' }), undefined)

@@ -5,13 +5,13 @@ Nguồn đọc truyện cho app Paperback (iOS), API 0.8:
 | Nguồn | Web | Version |
 |---|---|---|
 | TruyenQQ | https://truyenqqko.com | 1.2.1 |
-| NetTruyen | https://nettruyen.gg | 1.0.0 |
+| NetTruyen | https://nettruyen.gg | 1.0.1 |
 
 Mỗi nguồn có: trang chủ, tìm theo tên, lọc theo một thể loại, chi tiết truyện,
 danh sách chương, đọc chương, Cloudflare bypass.
 
 - TruyenQQ: trang chủ gồm Mới cập nhật, Yêu thích.
-- NetTruyen: trang chủ gồm Mới cập nhật, Truyện hot, Hoàn thành. Nếu trang truyện
+- NetTruyen: trang chủ gồm Mới cập nhật, Top tháng, Hoàn thành (đều lấy từ `/tim-truyen`). Nếu trang truyện
   không có sẵn danh sách chương, nguồn gọi API `ComicService.asmx/ChapterList`.
 
 ## Cấu trúc
